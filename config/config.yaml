@@ -37,14 +37,17 @@ categories:
     enabled: true
     name: "🌐 Сеть"
     functions:
+      - id: diagnostics
+        name: "🔧 Диагностика (ping, tracert, DNS, порты)"
+        enabled: true
       - id: scan
-        name: "Сканирование"
+        name: "📡 Сканирование подсети"
         enabled: true
       - id: map
-        name: "Карта сети"
+        name: "🗺️ Карта сети"
         enabled: true
-      - id: diagnostics
-        name: "Диагностика"
+      - id: ports
+        name: "🔍 Сканирование портов"
         enabled: true
 
   ad:
