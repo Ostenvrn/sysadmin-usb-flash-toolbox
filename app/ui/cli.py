@@ -61,7 +61,6 @@ def run_cli(config: dict):
             print("До свидания!")
             break
 
-        # Проверяем, что выбор — число
         if not choice.isdigit():
             print("Неверный выбор. Введи число.")
             continue
@@ -74,7 +73,6 @@ def run_cli(config: dict):
         category_key = keys[idx]
         category = enabled[category_key]
 
-        # Показываем меню категории
         while True:
             func_choice = show_category_menu(category_key, category, config)
 
@@ -101,15 +99,27 @@ def run_function(category_key: str, func: dict, config: dict):
     func_id = func.get("id", "")
     logger.info(f"Запуск функции: {category_key}.{func_id}")
 
+    # =================================================================
     # Диспетчер: какой модуль вызывать
-    if category_key == "printers" and func_id == "monitor":
-        from app.categories.printers import monitor
-        monitor.run()
-    elif category_key == "printers" and func_id == "auto_fix":
-        from app.categories.printers import auto_fix
-        auto_fix.run()
-    else:
-        print()
-        print(f"⚠️  Функция «{func['name']}» ещё не реализована.")
-        print("   Будет добавлена на следующем этапе.")
-        print()
+    # =================================================================
+
+    # --- Категория: Принтеры ---
+    if category_key == "printers":
+        if func_id == "monitor":
+            from app.categories.printers import monitor
+            monitor.run()
+            return
+        elif func_id == "auto_fix":
+            from app.categories.printers import auto_fix
+            auto_fix.run()
+            return
+        elif func_id == "scanner":
+            from app.categories.printers import scanner
+            scanner.run()
+            return
+
+    # --- Заглушка для остальных ---
+    print()
+    print(f"⚠️  Функция «{func['name']}» ещё не реализована.")
+    print("   Будет добавлена на следующем этапе.")
+    print()
