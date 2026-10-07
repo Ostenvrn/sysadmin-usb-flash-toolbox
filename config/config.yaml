@@ -26,7 +26,10 @@ categories:
         name: "Автопочинка"
         enabled: true
       - id: scanner
-        name: "🔍 Сканер сети (найти принтеры)"
+        name: "🔍 Сканер сети (найти сетевые принтеры)"
+        enabled: true
+      - id: local_scanner
+        name: "🔌 Локальные принтеры (USB)"
         enabled: true
       - id: reports
         name: "Отчёты"
