@@ -125,6 +125,23 @@ def run_function(category_key: str, func: dict, config: dict):
             return
 
     # =================================================================
+    # Категория: Система
+    # =================================================================
+    if category_key == "system":
+        if func_id == "info":
+            from app.categories.system import info
+            info.run()
+            return
+        elif func_id == "cleanup":
+            from app.categories.system import cleanup
+            cleanup.run()
+            return
+        elif func_id == "update":
+            from app.categories.system import update
+            update.run()
+            return
+
+    # =================================================================
     # Заглушка для остальных
     # =================================================================
     print()
