@@ -173,6 +173,18 @@ def run_function(category_key: str, func: dict, config: dict):
             from app.categories.ad import passwords
             passwords.run(); return
 
+    # --- Отчёты ---
+    if category_key == "reports":
+        if func_id == "generate":
+            from app.categories.reports import generate
+            generate.run(); return
+        elif func_id == "export":
+            from app.categories.reports import export
+            export.run(); return
+        elif func_id == "history":
+            from app.categories.reports import history
+            history.run(); return
+
     # --- Заглушка ---
     print()
     print(f"⚠️  Функция «{func['name']}» ещё не реализована.")
