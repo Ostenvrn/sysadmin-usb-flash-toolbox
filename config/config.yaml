@@ -72,7 +72,10 @@ categories:
     name: "💾 Резервное копирование"
     functions:
       - id: create
-        name: "📦 Создать бэкап"
+        name: "📦 Создать бэкап (данные/система)"
+        enabled: true
+      - id: disk_image
+        name: "🔴💿 ПОЛНЫЙ ОБРАЗ ДИСКА (ОПАСНО!)"
         enabled: true
       - id: verify
         name: "✅ Проверить бэкап"
