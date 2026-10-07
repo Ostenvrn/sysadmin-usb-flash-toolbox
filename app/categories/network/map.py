@@ -3,10 +3,10 @@
 Читает результаты сканирования (output/scans/network_*.json)
 и строит текстовую карту + HTML с интерактивностью.
 
-Улучшенное распознавание устройств:
+Распознавание устройств:
 - hostname (reverse DNS)
-- MAC + OUI (производитель)
-- открытые порты (9100, 515, 631 → принтер; 22 → Linux; 3389 → Windows)
+- производитель (из IEEE OUI базы)
+- тип подключения: только для СВОЕГО ПК (точно по имени интерфейса)
 """
 import json
 import socket
@@ -16,6 +16,7 @@ from datetime import datetime
 
 from app.os_detect import os_detector
 from app.core.logger import setup_logger
+from app.core.oui import lookup_vendor, is_local_mac
 
 logger = setup_logger("network-map")
 
@@ -25,74 +26,13 @@ MAPS_DIR = PROJECT_ROOT / "output" / "maps"
 
 
 # =====================================================================
-# База OUI (производители MAC)
-# Формат: первые 6 hex-символов MAC → производитель
-# =====================================================================
-OUI_DB = {
-    # Apple
-    "001B63": "Apple", "001EC2": "Apple", "3C0754": "Apple",
-    "F4F5D8": "Apple", "0018E7": "Apple", "000D93": "Apple",
-    "00248C": "Apple", "0026B0": "Apple", "28CFE9": "Apple",
-    "40A6D9": "Apple", "6C709F": "Apple", "8C8590": "Apple",
-    # Raspberry Pi
-    "B827EB": "Raspberry Pi", "DCA632": "Raspberry Pi", "E45F01": "Raspberry Pi",
-    # Xiaomi
-    "286C07": "Xiaomi", "3C47D4": "Xiaomi", "64CC2E": "Xiaomi",
-    "F8A45F": "Xiaomi", "78 11 DC": "Xiaomi",
-    # Samsung
-    "001632": "Samsung", "002454": "Samsung", "5C0A5B": "Samsung",
-    "84 25 DB": "Samsung", "D0176A": "Samsung",
-    # Huawei
-    "00259E": "Huawei", "002568": "Huawei", "104780": "Huawei",
-    "24DBAC": "Huawei", "4C1FCC": "Huawei",
-    # TP-Link
-    "001D0F": "TP-Link", "002127": "TP-Link", "14CC20": "TP-Link",
-    "3C46D8": "TP-Link", "50C7BF": "TP-Link", "9C532D": "TP-Link",
-    # D-Link
-    "001195": "D-Link", "001CF0": "D-Link", "1CBDB9": "D-Link",
-    "340804": "D-Link", "78542E": "D-Link",
-    # Asus
-    "001BFC": "Asus", "002215": "Asus", "08606E": "Asus",
-    "1C872C": "Asus", "2C56DC": "Asus", "50465D": "Asus",
-    # HP
-    "001321": "HP", "001E0B": "HP", "002481": "HP",
-    "3C4A92": "HP", "9457A5": "HP",
-    # Canon
-    "001E8F": "Canon", "00248C": "Canon", "888717": "Canon",
-    # Epson
-    "000048": "Epson", "44D244": "Epson", "A4EE57": "Epson",
-    # Kyocera
-    "0027 13": "Kyocera", "40 16 7E": "Kyocera",
-    # Intel
-    "001B21": "Intel", "3C970E": "Intel", "7C7A91": "Intel",
-    # Realtek
-    "00E04C": "Realtek", "52540 0": "Realtek",
-    # Netgear
-    "000FB5": "Netgear", "204E7F": "Netgear", "A00460": "Netgear",
-    # Mikrotik
-    "4C5E0C": "Mikrotik", "6C3B6B": "Mikrotik", "CC2DE0": "Mikrotik",
-    # Ubiquiti
-    "002722": "Ubiquiti", "0418D6": "Ubiquiti", "24A43C": "Ubiquiti",
-    # VMware
-    "000C29": "VMware", "005056": "VMware",
-    # VirtualBox
-    "080027": "VirtualBox",
-    # QEMU/KVM
-    "525400": "QEMU",
-}
-
-
-# =====================================================================
 # Определение типа устройства
 # =====================================================================
 
 def guess_device_type(device: dict) -> str:
-    """
-    Определяет тип устройства по hostname, MAC, портам.
-    Возвращает строку с иконкой и типом.
-    """
+    """Определяет тип устройства по hostname, производителю, портам."""
     hostname = (device.get("hostname") or "").lower()
-    mac = (device.get("mac") or "").upper().replace("-", ":").replace(".", "")
+    vendor = (device.get("vendor") or "").lower()
     ports = device.get("open_ports", []) or []
 
     # === 1. По hostname ===
@@ -113,59 +53,64 @@ def guess_device_type(device: dict) -> str:
     if any(x in hostname for x in ["tv", "smarttv", "телевизор"]):
         return "📺 ТВ"
 
-    # === 2. По открытым портам ===
+    # === 2. По производителю (из OUI базы) ===
+    if vendor:
+        if any(x in vendor for x in ["apple", "iphone", "ipad"]):
+            return "📱 Apple"
+        if any(x in vendor for x in ["xiaomi", "redmi"]):
+            return "📱 Xiaomi"
+        if any(x in vendor for x in ["samsung"]):
+            return "📱 Samsung"
+        if any(x in vendor for x in ["huawei", "honor"]):
+            return "📱 Huawei"
+        if any(x in vendor for x in ["raspberry"]):
+            return "🍓 Raspberry Pi"
+        if any(x in vendor for x in ["hp", "hewlett"]):
+            return "🖨️ HP (принтер?)"
+        if any(x in vendor for x in ["canon"]):
+            return "🖨️ Canon (принтер?)"
+        if any(x in vendor for x in ["epson"]):
+            return "🖨️ Epson (принтер?)"
+        if any(x in vendor for x in ["kyocera"]):
+            return "🖨️ Kyocera (принтер?)"
+        if any(x in vendor for x in ["tp-link", "d-link", "netgear", "asus", "mikrotik", "ubiquiti"]):
+            return f"🌐 {vendor} (роутер?)"
+        if any(x in vendor for x in ["vmware", "virtualbox", "qemu"]):
+            return "☁️ Виртуалка"
+        if any(x in vendor for x in ["intel", "realtek"]):
+            return "🖥️ ПК (Intel/Realtek)"
+
+    # === 3. По открытым портам ===
     if ports:
-        # Принтеры: 9100 (raw), 515 (LPD), 631 (IPP)
         if 9100 in ports or 515 in ports or 631 in ports:
             return "🖨️ Принтер"
-        # NAS: 5000 (Synology), 8080+WebDAV, 21 (FTP)
         if 5000 in ports and 5001 in ports:
             return "💾 NAS"
-        # Windows: 135, 139, 445
         if 445 in ports or 3389 in ports:
             return "🖥️ ПК (Windows)"
-        # Linux сервер: 22 + 80/443
         if 22 in ports and (80 in ports or 443 in ports):
             return "🖥️ Сервер (Linux)"
-        # Linux ПК: только 22
         if 22 in ports:
             return "🖥️ ПК (Linux)"
-        # Веб-камера/устройство с 80/443
         if 80 in ports or 443 in ports:
             return "🌐 Устройство с веб-интерфейсом"
 
-    # === 3. По MAC (OUI) ===
-    if mac and len(mac) >= 6:
-        oui = mac.replace(":", "")[:6].upper()
-        if oui in OUI_DB:
-            vendor = OUI_DB[oui]
-            # По производителю угадываем тип
-            if vendor == "Apple":
-                return "📱 Apple"
-            if vendor == "Raspberry Pi":
-                return "🍓 Raspberry Pi"
-            if vendor == "Xiaomi":
-                return "📱 Xiaomi"
-            if vendor == "Samsung":
-                return "📱 Samsung"
-            if vendor == "Huawei":
-                return "📱 Huawei"
-            if vendor in ("TP-Link", "D-Link", "Asus", "Netgear", "Mikrotik", "Ubiquiti"):
-                return f"🌐 {vendor} (роутер?)"
-            if vendor in ("HP", "Canon", "Epson", "Kyocera"):
-                return f"🖨️ {vendor} (принтер?)"
-            if vendor == "VMware":
-                return "☁️ VMware VM"
-            if vendor == "VirtualBox":
-                return "☁️ VirtualBox VM"
-            if vendor == "QEMU":
-                return "☁️ QEMU VM"
-            if vendor == "Intel":
-                return "🖥️ ПК (Intel)"
-            return f"❓ {vendor}"
+    # === 4. Локальный MAC ===
+    mac = device.get("mac", "")
+    if mac and is_local_mac(mac):
+        return "📱 Устройство с random MAC"
 
-    # === 4. Неизвестно ===
     return "❓ Неизвестно"
+
+
+def get_connection_icon(device: dict) -> str:
+    """Возвращает иконку подключения (только для своего ПК)."""
+    conn = device.get("connection", "")
+    if conn == "wifi":
+        return "📶"
+    if conn == "ethernet":
+        return "🔌"
+    return ""
 
 
 def get_gateway() -> str:
@@ -235,13 +180,21 @@ def print_text_map(devices: list, subnet: str, local_ip: str, gateway: str):
             ip = d["ip"]
             hostname = d.get("hostname") or "—"
             mac = d.get("mac") or "—"
+            vendor = d.get("vendor") or ""
+
+            conn_icon = get_connection_icon(d)
+
             marker = ""
             if ip == local_ip:
                 marker = " ← (ты)"
             elif ip == gateway:
                 marker = " ← (роутер)"
-            print(f"     ├─ {ip:<16}{marker}")
-            print(f"     │  Hostname: {hostname}")
+
+            print(f"     ├─ {ip:<16} {conn_icon}{marker}")
+            if hostname != "—":
+                print(f"     │  Hostname: {hostname}")
+            if vendor:
+                print(f"     │  Vendor:   {vendor}")
             print(f"     │  MAC:      {mac}")
         print()
 
@@ -289,12 +242,8 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
 
     if js_source.exists():
         shutil.copy(js_source, js_dest)
-        logger.info(f"vis-network.min.js скопирован в {js_dest}")
     else:
         print("  ❌ Не удалось получить vis-network.min.js")
-        print("     Скачай вручную:")
-        print(f"     curl -L -o {js_source} "
-              "https://unpkg.com/vis-network/standalone/umd/vis-network.min.js")
 
     # =================================================================
     # Формируем узлы и рёбра
@@ -313,9 +262,19 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
         })
 
     # 2. Твой ПК
+    conn_icon = ""
+    if devices:
+        for d in devices:
+            if d["ip"] == local_ip:
+                conn_icon = get_connection_icon(d)
+                break
+    if not conn_icon:
+        # Определяем по интерфейсу
+        conn_icon = "📶" if "wl" in (os_detector.run_command(["ip", "-br", "link"])[1] or "") else "🔌"
+
     nodes.append({
         "id": local_ip,
-        "label": f"💻 ТЫ\n{local_ip}",
+        "label": f"💻 ТЫ\n{conn_icon} {local_ip}",
         "group": "you",
         "title": f"Твой ПК\nIP: {local_ip}",
         "size": 35,
@@ -330,23 +289,27 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
         dtype = guess_device_type(d)
         hostname = d.get("hostname") or ip
         mac = d.get("mac") or "—"
+        vendor = d.get("vendor") or ""
         ports = d.get("open_ports", []) or []
+        conn_icon = get_connection_icon(d)
 
-        # Формируем tooltip
+        # Tooltip
         tooltip_parts = [dtype, f"IP: {ip}"]
         if hostname and hostname != ip:
             tooltip_parts.append(f"Hostname: {hostname}")
+        if vendor:
+            tooltip_parts.append(f"Vendor: {vendor}")
         if mac and mac != "—":
             tooltip_parts.append(f"MAC: {mac}")
         if ports:
             tooltip_parts.append(f"Порты: {', '.join(map(str, ports[:10]))}")
 
-        # Группа для цвета (первый символ emoji)
         group_key = dtype.split()[0] if dtype else "unknown"
+        label = f"{dtype}\n{conn_icon} {ip}" if conn_icon else f"{dtype}\n{ip}"
 
         nodes.append({
             "id": ip,
-            "label": f"{dtype}\n{ip}",
+            "label": label,
             "group": group_key,
             "title": "\n".join(tooltip_parts),
         })
@@ -374,109 +337,30 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
     <title>Карта сети — {subnet}</title>
     <script src="vis-network.min.js"></script>
     <style>
-        body {{
-            margin: 0;
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background: #0d1117;
-            color: #c9d1d9;
-            display: flex;
-            flex-direction: column;
-            height: 100vh;
-        }}
-        header {{
-            padding: 15px 20px;
-            background: #161b22;
-            border-bottom: 1px solid #30363d;
-        }}
-        h1 {{
-            margin: 0;
-            font-size: 22px;
-            color: #58a6ff;
-        }}
-        .info {{
-            margin-top: 6px;
-            font-size: 13px;
-            color: #8b949e;
-        }}
-        .content {{
-            display: flex;
-            flex: 1;
-            overflow: hidden;
-        }}
-        #network {{
-            flex: 1;
-            height: 100%;
-        }}
-        .sidebar {{
-            width: 340px;
-            background: #161b22;
-            border-left: 1px solid #30363d;
-            padding: 20px;
-            overflow-y: auto;
-        }}
-        .sidebar h2 {{
-            margin: 0 0 15px 0;
-            font-size: 16px;
-            color: #58a6ff;
-        }}
-        .sidebar .hint {{
-            color: #8b949e;
-            font-size: 13px;
-            font-style: italic;
-        }}
-        .device-item {{
-            padding: 10px;
-            background: #21262d;
-            border-radius: 6px;
-            margin-bottom: 8px;
-            border-left: 3px solid #58a6ff;
-        }}
-        .device-item .name {{
-            font-weight: bold;
-            font-size: 14px;
-            margin-bottom: 4px;
-        }}
-        .device-item .ip {{
-            font-family: monospace;
-            color: #8b949e;
-            font-size: 12px;
-        }}
-        .device-item .mac {{
-            font-family: monospace;
-            color: #6e7681;
-            font-size: 11px;
-            margin-top: 2px;
-        }}
-        .legend {{
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            background: #161b22;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 12px 15px;
-            font-size: 12px;
-            max-height: 300px;
-            overflow-y: auto;
-        }}
-        .legend h3 {{
-            margin: 0 0 8px 0;
-            font-size: 13px;
-            color: #58a6ff;
-        }}
-        .legend div {{
-            margin: 3px 0;
-        }}
+        body {{ margin: 0; font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #c9d1d9; display: flex; flex-direction: column; height: 100vh; }}
+        header {{ padding: 15px 20px; background: #161b22; border-bottom: 1px solid #30363d; }}
+        h1 {{ margin: 0; font-size: 22px; color: #58a6ff; }}
+        .info {{ margin-top: 6px; font-size: 13px; color: #8b949e; }}
+        .content {{ display: flex; flex: 1; overflow: hidden; }}
+        #network {{ flex: 1; height: 100%; }}
+        .sidebar {{ width: 340px; background: #161b22; border-left: 1px solid #30363d; padding: 20px; overflow-y: auto; }}
+        .sidebar h2 {{ margin: 0 0 15px 0; font-size: 16px; color: #58a6ff; }}
+        .sidebar .hint {{ color: #8b949e; font-size: 13px; font-style: italic; }}
+        .device-item {{ padding: 10px; background: #21262d; border-radius: 6px; margin-bottom: 8px; border-left: 3px solid #58a6ff; }}
+        .device-item .name {{ font-weight: bold; font-size: 14px; margin-bottom: 4px; }}
+        .device-item .ip {{ font-family: monospace; color: #8b949e; font-size: 12px; }}
+        .device-item .mac {{ font-family: monospace; color: #6e7681; font-size: 11px; margin-top: 2px; }}
+        .legend {{ position: absolute; bottom: 20px; left: 20px; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 15px; font-size: 12px; max-height: 400px; overflow-y: auto; }}
+        .legend h3 {{ margin: 0 0 8px 0; font-size: 13px; color: #58a6ff; }}
+        .legend div {{ margin: 3px 0; }}
+        .legend hr {{ border: none; border-top: 1px solid #30363d; margin: 8px 0; }}
     </style>
 </head>
 <body>
     <header>
         <h1>🗺️ Карта сети</h1>
         <div class="info">
-            Подсеть: <b>{subnet}</b> |
-            Устройств: <b>{len(devices)}</b> |
-            Шлюз: <b>{gateway or "не найден"}</b> |
-            Сгенерировано: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}
+            Подсеть: <b>{subnet}</b> | Устройств: <b>{len(devices)}</b> | Шлюз: <b>{gateway or "не найден"}</b> | Сгенерировано: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}
         </div>
     </header>
     <div class="content">
@@ -484,12 +368,12 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
         <div class="sidebar">
             <h2>📋 Информация</h2>
             <div id="info-panel">
-                <p class="hint">Кликни по узлу на карте, чтобы увидеть подробности и подключённые устройства.</p>
+                <p class="hint">Кликни по узлу на карте, чтобы увидеть подробности.</p>
             </div>
         </div>
     </div>
     <div class="legend">
-        <h3>Легенда</h3>
+        <h3>Устройства</h3>
         <div>🌐 Роутер</div>
         <div>💻 Твой ПК</div>
         <div>🖨️ Принтер</div>
@@ -499,31 +383,23 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
         <div>🍓 Raspberry Pi</div>
         <div>☁️ Виртуалка</div>
         <div>❓ Неизвестно</div>
+        <hr>
+        <h3>Подключение (только свой ПК)</h3>
+        <div>📶 Wi-Fi</div>
+        <div>🔌 Провод</div>
     </div>
-
     <script>
         var allNodes = {nodes_json};
         var allEdges = {edges_json};
         var gateway = {gateway_json};
         var localIp = {local_ip_json};
-
         var nodes = new vis.DataSet(allNodes);
         var edges = new vis.DataSet(allEdges);
         var container = document.getElementById('network');
         var data = {{ nodes: nodes, edges: edges }};
-
         var options = {{
-            nodes: {{
-                shape: 'box',
-                font: {{ color: '#c9d1d9', size: 13, face: 'Segoe UI' }},
-                borderWidth: 2,
-                margin: 12,
-            }},
-            edges: {{
-                color: {{ color: '#30363d', highlight: '#58a6ff' }},
-                width: 1,
-                smooth: {{ type: 'continuous' }},
-            }},
+            nodes: {{ shape: 'box', font: {{ color: '#c9d1d9', size: 13 }}, borderWidth: 2, margin: 12 }},
+            edges: {{ color: {{ color: '#30363d', highlight: '#58a6ff' }}, width: 1, smooth: {{ type: 'continuous' }} }},
             groups: {{
                 'router': {{ color: {{ background: '#238636', border: '#3fb950' }}, shape: 'hexagon' }},
                 'you': {{ color: {{ background: '#1f6feb', border: '#58a6ff' }} }},
@@ -536,56 +412,41 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
                 '☁️': {{ color: {{ background: '#484f58', border: '#8b949e' }} }},
                 '❓': {{ color: {{ background: '#484f58', border: '#8b949e' }} }},
             }},
-            physics: {{
-                stabilization: {{ iterations: 200 }},
-                barnesHut: {{ gravitationalConstant: -4000, springLength: 180 }},
-            }},
+            physics: {{ stabilization: {{ iterations: 200 }}, barnesHut: {{ gravitationalConstant: -4000, springLength: 180 }} }},
             interaction: {{ hover: true, tooltipDelay: 100 }},
         }};
-
         var network = new vis.Network(container, data, options);
-
         network.on('click', function(params) {{
             var infoPanel = document.getElementById('info-panel');
-
             if (params.nodes.length === 0) {{
-                infoPanel.innerHTML = '<p class="hint">Кликни по узлу на карте, чтобы увидеть подробности и подключённые устройства.</p>';
+                infoPanel.innerHTML = '<p class="hint">Кликни по узлу на карте, чтобы увидеть подробности.</p>';
                 return;
             }}
-
             var clickedId = params.nodes[0];
             var clickedNode = nodes.get(clickedId);
             var connectedIds = network.getConnectedNodes(clickedId);
-
             var html = '';
             html += '<div class="device-item">';
             html += '<div class="name">' + clickedNode.label.replace('\\n', ' — ') + '</div>';
             html += '<div class="ip">IP: ' + clickedNode.id + '</div>';
             if (clickedNode.title) {{
-                var titleParts = clickedNode.title.split('\\n');
-                for (var i = 1; i < titleParts.length; i++) {{
-                    html += '<div class="mac">' + titleParts[i] + '</div>';
+                var parts = clickedNode.title.split('\\n');
+                for (var i = 1; i < parts.length; i++) {{
+                    html += '<div class="mac">' + parts[i] + '</div>';
                 }}
             }}
             html += '</div>';
-
-            if (clickedId === gateway) {{
-                html += '<h2 style="margin-top:20px;">🔌 Подключено устройств: ' + connectedIds.length + '</h2>';
-            }} else if (clickedId === localIp) {{
-                html += '<h2 style="margin-top:20px;">🔌 Соседи в сети: ' + connectedIds.length + '</h2>';
-            }} else {{
+            if (connectedIds.length > 0) {{
                 html += '<h2 style="margin-top:20px;">🔗 Связано с:</h2>';
+                connectedIds.forEach(function(id) {{
+                    var n = nodes.get(id);
+                    if (!n) return;
+                    html += '<div class="device-item">';
+                    html += '<div class="name">' + n.label.replace('\\n', ' — ') + '</div>';
+                    html += '<div class="ip">IP: ' + n.id + '</div>';
+                    html += '</div>';
+                }});
             }}
-
-            connectedIds.forEach(function(id) {{
-                var n = nodes.get(id);
-                if (!n) return;
-                html += '<div class="device-item">';
-                html += '<div class="name">' + n.label.replace('\\n', ' — ') + '</div>';
-                html += '<div class="ip">IP: ' + n.id + '</div>';
-                html += '</div>';
-            }});
-
             infoPanel.innerHTML = html;
         }});
     </script>
