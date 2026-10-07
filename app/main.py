@@ -1,6 +1,7 @@
 """
 Главная точка входа sysadmin-usb.
 Определяет ОС, загружает конфиг, запускает меню или веб-интерфейс.
+Поддерживает портативный Python (Windows).
 """
 import sys
 import getpass
@@ -11,6 +12,14 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "libs"))
 
+# Если запущено на Windows с портативным Python — добавляем Lib/site-packages
+if sys.platform == "win32":
+    python_dir = PROJECT_ROOT / "python"
+    if python_dir.exists():
+        site_packages = python_dir / "Lib" / "site-packages"
+        if site_packages.exists():
+            sys.path.insert(0, str(site_packages))
+
 from app.os_detect import os_detector
 from app.core.config import load_config
 from app.core.logger import setup_logger
@@ -20,18 +29,13 @@ from app.ui.web import run_web
 
 def main():
     """Точка входа."""
-    # 1. Определяем ОС
     info = os_detector.get_system_info()
-
-    # 2. Настраиваем логирование
     logger = setup_logger()
     logger.info(f"Запуск sysadmin-usb на {info['system']} {info['release']}")
     logger.info(f"Hostname: {info['hostname']}")
 
-    # 3. Загружаем конфиг
     config = load_config()
 
-    # 4. Показываем ASCII-баннер + приветствие
     from app.ui.banner import print_ascii_banner, print_welcome
     from app.ui.colors import dim, bright_cyan, bright_yellow, C
 
@@ -48,7 +52,6 @@ def main():
         user=user,
     )
 
-    # 5. Выбор режима
     print(f"  {dim('Выберите режим работы:')}")
     print()
     print(f"    {bright_cyan('[1]')} 💻  Консольное меню")
