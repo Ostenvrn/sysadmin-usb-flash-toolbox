@@ -1,12 +1,8 @@
 """
 Карта сети — визуализация.
-Читает результаты сканирования (output/scans/network_*.json)
-и строит текстовую карту + HTML с интерактивностью.
-
-Распознавание устройств:
-- hostname (reverse DNS)
-- производитель (из IEEE OUI базы)
-- тип подключения: только для СВОЕГО ПК (точно по имени интерфейса)
+Читает результаты сканирования (output/scans/network_*.json).
+Группирует устройства по категориям (ПК, серверы, принтеры...).
+Телефоны — в отдельной группе (мелкие, второстепенные).
 """
 import json
 import socket
@@ -16,7 +12,7 @@ from datetime import datetime
 
 from app.os_detect import os_detector
 from app.core.logger import setup_logger
-from app.core.oui import lookup_vendor, is_local_mac
+from app.core.device_classifier import classify_device, CATEGORY_INFO
 
 logger = setup_logger("network-map")
 
@@ -25,96 +21,7 @@ SCANS_DIR = PROJECT_ROOT / "output" / "scans"
 MAPS_DIR = PROJECT_ROOT / "output" / "maps"
 
 
-# =====================================================================
-# Определение типа устройства
-# =====================================================================
-
-def guess_device_type(device: dict) -> str:
-    """Определяет тип устройства по hostname, производителю, портам."""
-    hostname = (device.get("hostname") or "").lower()
-    vendor = (device.get("vendor") or "").lower()
-    ports = device.get("open_ports", []) or []
-
-    # === 1. По hostname ===
-    if any(x in hostname for x in ["router", "gateway", "gw", "роутер", "mikrotik"]):
-        return "🌐 Роутер"
-    if any(x in hostname for x in ["printer", "hp", "canon", "epson", "kyocera", "принтер", "mfp"]):
-        return "🖨️ Принтер"
-    if any(x in hostname for x in ["nas", "synology", "qnap", "freenas"]):
-        return "💾 NAS"
-    if any(x in hostname for x in ["server", "srv", "сервер"]):
-        return "🖥️ Сервер"
-    if any(x in hostname for x in ["phone", "iphone", "android", "телефон", "samsung", "xiaomi", "redmi", "huawei"]):
-        return "📱 Телефон"
-    if any(x in hostname for x in ["laptop", "notebook", "ноут", "lenovo", "asus", "acer"]):
-        return "💻 Ноутбук"
-    if any(x in hostname for x in ["desktop", "pc", "пк", "win-", "win "]):
-        return "🖥️ ПК"
-    if any(x in hostname for x in ["tv", "smarttv", "телевизор"]):
-        return "📺 ТВ"
-
-    # === 2. По производителю (из OUI базы) ===
-    if vendor:
-        if any(x in vendor for x in ["apple", "iphone", "ipad"]):
-            return "📱 Apple"
-        if any(x in vendor for x in ["xiaomi", "redmi"]):
-            return "📱 Xiaomi"
-        if any(x in vendor for x in ["samsung"]):
-            return "📱 Samsung"
-        if any(x in vendor for x in ["huawei", "honor"]):
-            return "📱 Huawei"
-        if any(x in vendor for x in ["raspberry"]):
-            return "🍓 Raspberry Pi"
-        if any(x in vendor for x in ["hp", "hewlett"]):
-            return "🖨️ HP (принтер?)"
-        if any(x in vendor for x in ["canon"]):
-            return "🖨️ Canon (принтер?)"
-        if any(x in vendor for x in ["epson"]):
-            return "🖨️ Epson (принтер?)"
-        if any(x in vendor for x in ["kyocera"]):
-            return "🖨️ Kyocera (принтер?)"
-        if any(x in vendor for x in ["tp-link", "d-link", "netgear", "asus", "mikrotik", "ubiquiti"]):
-            return f"🌐 {vendor} (роутер?)"
-        if any(x in vendor for x in ["vmware", "virtualbox", "qemu"]):
-            return "☁️ Виртуалка"
-        if any(x in vendor for x in ["intel", "realtek"]):
-            return "🖥️ ПК (Intel/Realtek)"
-
-    # === 3. По открытым портам ===
-    if ports:
-        if 9100 in ports or 515 in ports or 631 in ports:
-            return "🖨️ Принтер"
-        if 5000 in ports and 5001 in ports:
-            return "💾 NAS"
-        if 445 in ports or 3389 in ports:
-            return "🖥️ ПК (Windows)"
-        if 22 in ports and (80 in ports or 443 in ports):
-            return "🖥️ Сервер (Linux)"
-        if 22 in ports:
-            return "🖥️ ПК (Linux)"
-        if 80 in ports or 443 in ports:
-            return "🌐 Устройство с веб-интерфейсом"
-
-    # === 4. Локальный MAC ===
-    mac = device.get("mac", "")
-    if mac and is_local_mac(mac):
-        return "📱 Устройство с random MAC"
-
-    return "❓ Неизвестно"
-
-
-def get_connection_icon(device: dict) -> str:
-    """Возвращает иконку подключения (только для своего ПК)."""
-    conn = device.get("connection", "")
-    if conn == "wifi":
-        return "📶"
-    if conn == "ethernet":
-        return "🔌"
-    return ""
-
-
 def get_gateway() -> str:
-    """Определяет IP шлюза (роутера)."""
     if os_detector.is_linux:
         rc, stdout, _ = os_detector.run_command(["ip", "route"])
         if rc == 0:
@@ -134,12 +41,20 @@ def get_gateway() -> str:
     return ""
 
 
+def get_connection_icon(device: dict) -> str:
+    conn = device.get("connection", "")
+    if conn == "wifi":
+        return "📶"
+    if conn == "ethernet":
+        return "🔌"
+    return ""
+
+
 # =====================================================================
 # Текстовая карта
 # =====================================================================
 
 def print_text_map(devices: list, subnet: str, local_ip: str, gateway: str):
-    """Строит текстовую карту сети."""
     print()
     print("=" * 80)
     print("  КАРТА СЕТИ")
@@ -163,25 +78,31 @@ def print_text_map(devices: list, subnet: str, local_ip: str, gateway: str):
         print("  Нет других устройств.")
         return
 
-    devices_sorted = sorted(
-        devices,
-        key=lambda d: tuple(int(x) for x in d["ip"].split("."))
+    # Группируем по категориям
+    by_category = {}
+    for d in devices:
+        cat = d.get("classification", {}).get("category", "unknown")
+        by_category.setdefault(cat, []).append(d)
+
+    sorted_cats = sorted(
+        by_category.keys(),
+        key=lambda c: CATEGORY_INFO.get(c, {}).get("priority", 9)
     )
 
-    by_type = {}
-    for d in devices_sorted:
-        dtype = guess_device_type(d)
-        by_type.setdefault(dtype, []).append(d)
+    for cat in sorted_cats:
+        devs = by_category[cat]
+        info = CATEGORY_INFO.get(cat, {})
+        icon = info.get("icon", "❓")
+        name = info.get("name", cat)
 
-    for dtype, devs in sorted(by_type.items()):
-        print(f"  {dtype} ({len(devs)})")
-        print("  " + "─" * 70)
-        for d in devs:
+        print(f"  {icon} {name.upper()} ({len(devs)})")
+        print("  " + "─" * 76)
+
+        for d in sorted(devs, key=lambda x: tuple(int(i) for i in x["ip"].split("."))):
             ip = d["ip"]
             hostname = d.get("hostname") or "—"
             mac = d.get("mac") or "—"
             vendor = d.get("vendor") or ""
-
             conn_icon = get_connection_icon(d)
 
             marker = ""
@@ -204,7 +125,6 @@ def print_text_map(devices: list, subnet: str, local_ip: str, gateway: str):
 # =====================================================================
 
 def _download_vis_network(target: Path) -> bool:
-    """Скачивает vis-network.min.js с unpkg.com."""
     import urllib.request
     url = "https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"
     try:
@@ -226,12 +146,11 @@ def _download_vis_network(target: Path) -> bool:
 
 def generate_html_map(devices: list, subnet: str, local_ip: str,
                       gateway: str) -> Path:
-    """Генерирует HTML-карту с интерактивностью."""
     MAPS_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filepath = MAPS_DIR / f"network_map_{timestamp}.html"
 
-    # --- Копируем vis-network.min.js ---
+    # Копируем vis-network
     js_source = PROJECT_ROOT / "app" / "ui" / "web" / "static" / "js" / "vis-network.min.js"
     js_dest = MAPS_DIR / "vis-network.min.js"
 
@@ -242,12 +161,7 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
 
     if js_source.exists():
         shutil.copy(js_source, js_dest)
-    else:
-        print("  ❌ Не удалось получить vis-network.min.js")
 
-    # =================================================================
-    # Формируем узлы и рёбра
-    # =================================================================
     nodes = []
     edges = []
 
@@ -258,26 +172,22 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
             "label": f"🌐 Роутер\n{gateway}",
             "group": "router",
             "title": f"Роутер (шлюз)\nIP: {gateway}",
-            "size": 40,
+            "size": 45,
         })
 
     # 2. Твой ПК
-    conn_icon = ""
-    if devices:
-        for d in devices:
-            if d["ip"] == local_ip:
-                conn_icon = get_connection_icon(d)
-                break
-    if not conn_icon:
-        # Определяем по интерфейсу
-        conn_icon = "📶" if "wl" in (os_detector.run_command(["ip", "-br", "link"])[1] or "") else "🔌"
+    local_conn_icon = ""
+    for d in devices:
+        if d["ip"] == local_ip:
+            local_conn_icon = get_connection_icon(d)
+            break
 
     nodes.append({
         "id": local_ip,
-        "label": f"💻 ТЫ\n{conn_icon} {local_ip}",
+        "label": f"💻 ТЫ\n{local_conn_icon} {local_ip}",
         "group": "you",
         "title": f"Твой ПК\nIP: {local_ip}",
-        "size": 35,
+        "size": 40,
     })
 
     # 3. Устройства
@@ -286,7 +196,11 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
         if ip == local_ip or ip == gateway:
             continue
 
-        dtype = guess_device_type(d)
+        classification = d.get("classification", classify_device(d))
+        cat = classification.get("category", "unknown")
+        cat_icon = classification.get("icon", "❓")
+        cat_name = classification.get("name", "Неизвестно")
+
         hostname = d.get("hostname") or ip
         mac = d.get("mac") or "—"
         vendor = d.get("vendor") or ""
@@ -294,7 +208,7 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
         conn_icon = get_connection_icon(d)
 
         # Tooltip
-        tooltip_parts = [dtype, f"IP: {ip}"]
+        tooltip_parts = [f"{cat_icon} {cat_name}", f"IP: {ip}"]
         if hostname and hostname != ip:
             tooltip_parts.append(f"Hostname: {hostname}")
         if vendor:
@@ -303,15 +217,28 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
             tooltip_parts.append(f"MAC: {mac}")
         if ports:
             tooltip_parts.append(f"Порты: {', '.join(map(str, ports[:10]))}")
+        if classification.get("reason"):
+            tooltip_parts.append(f"Причина: {classification['reason']}")
 
-        group_key = dtype.split()[0] if dtype else "unknown"
-        label = f"{dtype}\n{conn_icon} {ip}" if conn_icon else f"{dtype}\n{ip}"
+        # Размер: ПК и серверы — крупнее, телефоны — мельче
+        size = 30
+        if cat in ("pc", "server"):
+            size = 35
+        elif cat == "printer":
+            size = 30
+        elif cat == "phone":
+            size = 18
+        elif cat == "unknown":
+            size = 20
+
+        label = f"{cat_icon} {cat_name}\n{conn_icon} {ip}" if conn_icon else f"{cat_icon} {cat_name}\n{ip}"
 
         nodes.append({
             "id": ip,
             "label": label,
-            "group": group_key,
+            "group": cat,
             "title": "\n".join(tooltip_parts),
+            "size": size,
         })
 
     # 4. Рёбра
@@ -343,7 +270,7 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
         .info {{ margin-top: 6px; font-size: 13px; color: #8b949e; }}
         .content {{ display: flex; flex: 1; overflow: hidden; }}
         #network {{ flex: 1; height: 100%; }}
-        .sidebar {{ width: 340px; background: #161b22; border-left: 1px solid #30363d; padding: 20px; overflow-y: auto; }}
+        .sidebar {{ width: 360px; background: #161b22; border-left: 1px solid #30363d; padding: 20px; overflow-y: auto; }}
         .sidebar h2 {{ margin: 0 0 15px 0; font-size: 16px; color: #58a6ff; }}
         .sidebar .hint {{ color: #8b949e; font-size: 13px; font-style: italic; }}
         .device-item {{ padding: 10px; background: #21262d; border-radius: 6px; margin-bottom: 8px; border-left: 3px solid #58a6ff; }}
@@ -353,14 +280,13 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
         .legend {{ position: absolute; bottom: 20px; left: 20px; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px 15px; font-size: 12px; max-height: 400px; overflow-y: auto; }}
         .legend h3 {{ margin: 0 0 8px 0; font-size: 13px; color: #58a6ff; }}
         .legend div {{ margin: 3px 0; }}
-        .legend hr {{ border: none; border-top: 1px solid #30363d; margin: 8px 0; }}
     </style>
 </head>
 <body>
     <header>
         <h1>🗺️ Карта сети</h1>
         <div class="info">
-            Подсеть: <b>{subnet}</b> | Устройств: <b>{len(devices)}</b> | Шлюз: <b>{gateway or "не найден"}</b> | Сгенерировано: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}
+            Подсеть: <b>{subnet}</b> | Устройств: <b>{len(devices)}</b> | Шлюз: <b>{gateway or "не найден"}</b> | {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}
         </div>
     </header>
     <div class="content">
@@ -368,78 +294,81 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
         <div class="sidebar">
             <h2>📋 Информация</h2>
             <div id="info-panel">
-                <p class="hint">Кликни по узлу на карте, чтобы увидеть подробности.</p>
+                <p class="hint">Кликни по узлу — увидишь подробности.</p>
             </div>
         </div>
     </div>
     <div class="legend">
-        <h3>Устройства</h3>
-        <div>🌐 Роутер</div>
-        <div>💻 Твой ПК</div>
+        <h3>Категории</h3>
+        <div>🖥️ ПК / Сервер</div>
         <div>🖨️ Принтер</div>
-        <div>🖥️ Сервер / ПК</div>
-        <div>📱 Телефон / Apple / Samsung</div>
+        <div>🌐 Роутер</div>
         <div>💾 NAS</div>
-        <div>🍓 Raspberry Pi</div>
         <div>☁️ Виртуалка</div>
+        <div>📺 ТВ</div>
+        <div>📱 Телефон</div>
+        <div>📟 IoT</div>
         <div>❓ Неизвестно</div>
-        <hr>
-        <h3>Подключение (только свой ПК)</h3>
-        <div>📶 Wi-Fi</div>
-        <div>🔌 Провод</div>
     </div>
     <script>
         var allNodes = {nodes_json};
         var allEdges = {edges_json};
         var gateway = {gateway_json};
         var localIp = {local_ip_json};
+
         var nodes = new vis.DataSet(allNodes);
         var edges = new vis.DataSet(allEdges);
         var container = document.getElementById('network');
         var data = {{ nodes: nodes, edges: edges }};
+
         var options = {{
             nodes: {{ shape: 'box', font: {{ color: '#c9d1d9', size: 13 }}, borderWidth: 2, margin: 12 }},
             edges: {{ color: {{ color: '#30363d', highlight: '#58a6ff' }}, width: 1, smooth: {{ type: 'continuous' }} }},
             groups: {{
                 'router': {{ color: {{ background: '#238636', border: '#3fb950' }}, shape: 'hexagon' }},
                 'you': {{ color: {{ background: '#1f6feb', border: '#58a6ff' }} }},
-                '🌐': {{ color: {{ background: '#238636', border: '#3fb950' }} }},
-                '🖨️': {{ color: {{ background: '#6e40c9', border: '#a371f7' }} }},
-                '🖥️': {{ color: {{ background: '#9e6a03', border: '#d29922' }} }},
-                '📱': {{ color: {{ background: '#1f6feb', border: '#58a6ff' }} }},
-                '💾': {{ color: {{ background: '#0d419d', border: '#58a6ff' }} }},
-                '🍓': {{ color: {{ background: '#bf3989', border: '#ff7b72' }} }},
-                '☁️': {{ color: {{ background: '#484f58', border: '#8b949e' }} }},
-                '❓': {{ color: {{ background: '#484f58', border: '#8b949e' }} }},
+                'pc': {{ color: {{ background: '#1f6feb', border: '#58a6ff' }} }},
+                'server': {{ color: {{ background: '#a371f7', border: '#d2a8ff' }} }},
+                'printer': {{ color: {{ background: '#6e40c9', border: '#a371f7' }} }},
+                'router': {{ color: {{ background: '#238636', border: '#3fb950' }}, shape: 'hexagon' }},
+                'nas': {{ color: {{ background: '#0d419d', border: '#58a6ff' }} }},
+                'vm': {{ color: {{ background: '#484f58', border: '#8b949e' }} }},
+                'tv': {{ color: {{ background: '#9e6a03', border: '#d29922' }} }},
+                'phone': {{ color: {{ background: '#6e7681', border: '#8b949e' }} }},
+                'iot': {{ color: {{ background: '#6e7681', border: '#8b949e' }} }},
+                'unknown': {{ color: {{ background: '#484f58', border: '#8b949e' }} }},
             }},
             physics: {{ stabilization: {{ iterations: 200 }}, barnesHut: {{ gravitationalConstant: -4000, springLength: 180 }} }},
             interaction: {{ hover: true, tooltipDelay: 100 }},
         }};
+
         var network = new vis.Network(container, data, options);
+
         network.on('click', function(params) {{
             var infoPanel = document.getElementById('info-panel');
             if (params.nodes.length === 0) {{
-                infoPanel.innerHTML = '<p class="hint">Кликни по узлу на карте, чтобы увидеть подробности.</p>';
+                infoPanel.innerHTML = '<p class="hint">Кликни по узлу — увидишь подробности.</p>';
                 return;
             }}
-            var clickedId = params.nodes[0];
-            var clickedNode = nodes.get(clickedId);
-            var connectedIds = network.getConnectedNodes(clickedId);
-            var html = '';
-            html += '<div class="device-item">';
-            html += '<div class="name">' + clickedNode.label.replace('\\n', ' — ') + '</div>';
-            html += '<div class="ip">IP: ' + clickedNode.id + '</div>';
-            if (clickedNode.title) {{
-                var parts = clickedNode.title.split('\\n');
+            var id = params.nodes[0];
+            var node = nodes.get(id);
+            var connected = network.getConnectedNodes(id);
+
+            var html = '<div class="device-item">';
+            html += '<div class="name">' + node.label.replace('\\n', ' — ') + '</div>';
+            html += '<div class="ip">IP: ' + node.id + '</div>';
+            if (node.title) {{
+                var parts = node.title.split('\\n');
                 for (var i = 1; i < parts.length; i++) {{
                     html += '<div class="mac">' + parts[i] + '</div>';
                 }}
             }}
             html += '</div>';
-            if (connectedIds.length > 0) {{
-                html += '<h2 style="margin-top:20px;">🔗 Связано с:</h2>';
-                connectedIds.forEach(function(id) {{
-                    var n = nodes.get(id);
+
+            if (connected.length > 0) {{
+                html += '<h2 style="margin-top:20px;">🔗 Связано с (' + connected.length + '):</h2>';
+                connected.forEach(function(cid) {{
+                    var n = nodes.get(cid);
                     if (!n) return;
                     html += '<div class="device-item">';
                     html += '<div class="name">' + n.label.replace('\\n', ' — ') + '</div>';
@@ -466,14 +395,11 @@ def generate_html_map(devices: list, subnet: str, local_ip: str,
 # =====================================================================
 
 def load_last_scan() -> dict:
-    """Загружает последний результат сканирования."""
     if not SCANS_DIR.exists():
         return {}
-
     files = sorted(SCANS_DIR.glob("network_*.json"), reverse=True)
     if not files:
         return {}
-
     try:
         with open(files[0], "r", encoding="utf-8") as f:
             return json.load(f)
@@ -487,7 +413,6 @@ def load_last_scan() -> dict:
 # =====================================================================
 
 def run():
-    """Точка входа."""
     print()
     print("=" * 80)
     print("  КАРТА СЕТИ")
@@ -495,7 +420,6 @@ def run():
     print()
 
     data = load_last_scan()
-
     if not data:
         print("  Нет данных сканирования.")
         print("  Сначала запусти «Сканирование подсети».")
