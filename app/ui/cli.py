@@ -151,6 +151,10 @@ def run_function(category_key: str, func: dict, config: dict):
             from app.categories.network import scan
             scan.run()
             return
+        elif func_id == "ports":
+            from app.categories.network import ports
+            ports.run()
+            return
 
     # --- Заглушка ---
     print()
