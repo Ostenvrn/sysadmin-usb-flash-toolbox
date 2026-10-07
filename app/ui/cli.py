@@ -155,6 +155,10 @@ def run_function(category_key: str, func: dict, config: dict):
             from app.categories.network import ports
             ports.run()
             return
+        elif func_id == "map":
+            from app.categories.network import map as net_map
+            net_map.run()
+            return
 
     # --- Заглушка ---
     print()
