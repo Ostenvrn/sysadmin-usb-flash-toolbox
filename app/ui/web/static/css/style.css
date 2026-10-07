@@ -1,6 +1,6 @@
 /* =====================================================================
    SYSADMIN-USB — стили веб-интерфейса
-   Тёмная тема, минимализм, GitHub-стиль
+   Тёмная тема, GitHub-стиль
    ===================================================================== */
 
 * {
@@ -114,7 +114,7 @@ section h2 {
 /* === Категории === */
 .category-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 16px;
 }
 
@@ -124,41 +124,78 @@ section h2 {
     border-radius: 8px;
     padding: 20px;
     transition: all 0.2s;
-    cursor: pointer;
 }
 
 .category-card:hover {
     border-color: #58a6ff;
     background: #1c2128;
-    transform: translateY(-2px);
 }
 
 .category-card .title {
     font-size: 16px;
     font-weight: 600;
     color: #c9d1d9;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #21262d;
 }
 
 .category-card .functions {
-    font-size: 13px;
-    color: #8b949e;
+    list-style: none;
 }
 
 .category-card .functions li {
-    list-style: none;
-    padding: 2px 0;
+    display: flex;
+    align-items: center;
+    padding: 6px 0;
+    font-size: 13px;
+    color: #8b949e;
+    border-bottom: 1px solid #21262d;
 }
 
-.category-card .functions li::before {
-    content: "• ";
-    color: #58a6ff;
+.category-card .functions li:last-child {
+    border-bottom: none;
+}
+
+/* === Кнопки запуска === */
+.run-btn {
+    background: #238636;
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-right: 10px;
+    font-weight: 600;
+    min-width: 28px;
+}
+
+.run-btn:hover {
+    background: #2ea043;
+    transform: scale(1.1);
+}
+
+.run-btn:disabled {
+    background: #484f58;
+    cursor: wait;
+    transform: none;
+}
+
+.no-run {
+    color: #484f58;
+    margin-right: 10px;
+    font-size: 12px;
+    display: inline-block;
+    width: 28px;
+    text-align: center;
 }
 
 /* === Дашборд (виджеты) === */
 .widgets {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 16px;
 }
 
@@ -170,7 +207,7 @@ section h2 {
 }
 
 .widget-title {
-    font-size: 14px;
+    font-size: 13px;
     color: #8b949e;
     margin-bottom: 12px;
     text-transform: uppercase;
@@ -270,9 +307,115 @@ footer strong {
     60%, 100% { content: "..."; }
 }
 
+/* === Модальное окно === */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal.active {
+    display: flex;
+}
+
+.modal-content {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 1000px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid #30363d;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h3 {
+    color: #58a6ff;
+    font-size: 16px;
+    font-family: monospace;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: #8b949e;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0 8px;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: #f85149;
+}
+
+.modal-output {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #c9d1d9;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #0d1117;
+    margin: 0;
+}
+
+.modal-footer {
+    padding: 12px 20px;
+    border-top: 1px solid #30363d;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.modal-footer button {
+    background: #21262d;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 6px 16px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.modal-footer button:hover {
+    background: #30363d;
+    border-color: #8b949e;
+}
+
 /* === Адаптив === */
 @media (max-width: 768px) {
-    header { padding: 15px 20px; flex-direction: column; gap: 8px; }
-    main { padding: 20px; }
-    footer { padding: 15px 20px; }
+    header {
+        padding: 15px 20px;
+        flex-direction: column;
+        gap: 8px;
+    }
+    main {
+        padding: 20px;
+    }
+    footer {
+        padding: 15px 20px;
+    }
+    .modal-content {
+        width: 95%;
+        max-height: 90vh;
+    }
 }

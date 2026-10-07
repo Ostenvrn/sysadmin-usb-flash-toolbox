@@ -37,13 +37,17 @@ def create_app(config: dict) -> Flask:
     app.config["USBU"] = config
 
     # =================================================================
-    # Маршруты
+    # Страницы
     # =================================================================
 
     @app.route("/")
     def index():
         """Главная страница."""
         return render_template("index.html", config=config)
+
+    # =================================================================
+    # API: данные
+    # =================================================================
 
     @app.route("/api/status")
     def api_status():
@@ -161,13 +165,27 @@ def create_app(config: dict) -> Flask:
         except Exception as e:
             return jsonify({"ok": False, "error": str(e)}), 500
 
+    # =================================================================
+    # API: запуск функций
+    # =================================================================
+
     @app.route("/api/run/<category>/<func_id>", methods=["POST"])
     def api_run(category: str, func_id: str):
-        """Запускает функцию (в разработке — только заглушка)."""
-        return jsonify({
-            "ok": False,
-            "error": "Запуск функций из веба пока не поддерживается. Используй консоль.",
-        }), 501
+        """Запускает функцию."""
+        from app.ui.web.runner import run_function, is_allowed
+
+        if not is_allowed(category, func_id):
+            return jsonify({
+                "ok": False,
+                "error": f"Функция {category}.{func_id} не разрешена для запуска из веба",
+            }), 403
+
+        result = run_function(category, func_id)
+        return jsonify(result)
+
+    # =================================================================
+    # Обработчики ошибок
+    # =================================================================
 
     @app.errorhandler(404)
     def not_found(e):
