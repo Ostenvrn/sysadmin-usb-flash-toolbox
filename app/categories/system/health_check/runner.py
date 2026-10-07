@@ -24,6 +24,10 @@ def run_all_checks() -> list:
         ("disks", "app.categories.system.health_check.checks.disks", "check_disks"),
         ("network", "app.categories.system.health_check.checks.network", "check_network"),
         ("services", "app.categories.system.health_check.checks.services", "check_services"),
+        ("drivers", "app.categories.system.health_check.checks.drivers", "check_drivers"),
+        ("events", "app.categories.system.health_check.checks.events", "check_events"),
+        ("processes", "app.categories.system.health_check.checks.processes", "check_processes"),
+        ("security", "app.categories.system.health_check.checks.security", "check_security"),
     ]
 
     for name, module_path, func_name in checks:
