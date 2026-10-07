@@ -25,6 +25,9 @@ categories:
       - id: auto_fix
         name: "Автопочинка"
         enabled: true
+      - id: scanner
+        name: "🔍 Сканер сети (найти принтеры)"
+        enabled: true
       - id: reports
         name: "Отчёты"
         enabled: true
