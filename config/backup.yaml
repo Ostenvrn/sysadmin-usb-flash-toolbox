@@ -1,5 +1,6 @@
 # =====================================================================
 # Конфигурация бэкапов.
+# Два профиля: "workstation" (рабочий ПК) и "server" (сервер).
 # =====================================================================
 
 # Куда сохранять бэкапы (относительно корня проекта)
@@ -8,38 +9,175 @@ backup_dir: output/backups
 # Формат архива: tar.gz или zip
 format: tar.gz
 
-# Что бэкапить
-targets:
-  # Пример: папка с документами
-  - name: "Документы"
-    path: "~/Documents"
-    enabled: true
-
-  # Пример: конфиги Linux
-  - name: "Конфиги Linux"
-    path: "/etc"
-    enabled: false   # требует sudo
-
-  # Пример: домашняя папка
-  - name: "Домашняя папка"
-    path: "~"
-    enabled: false   # может быть большой
-
-# Исключения (что НЕ бэкапить)
-exclude:
-  - "*.tmp"
-  - "*.log"
-  - "__pycache__"
-  - ".cache"
-  - "node_modules"
-  - ".venv"
-  - "venv"
-
-# Хранить N последних бэкапов (старые удаляются)
+# Хранить N последних бэкапов
 keep_last: 5
 
-# Сжимать архив
+# Сжимать
 compress: true
 
 # Проверять целостность после создания
 verify_after_create: true
+
+# =====================================================================
+# ПРОФИЛЬ: Рабочий компьютер
+# =====================================================================
+workstation:
+  name: "Рабочий компьютер"
+  targets:
+    # === Личные папки ===
+    - name: "Документы"
+      path: "~/Документы"
+      enabled: true
+
+    - name: "Загрузки"
+      path: "~/Загрузки"
+      enabled: true
+
+    - name: "Изображения"
+      path: "~/Изображения"
+      enabled: true
+
+    - name: "Видео"
+      path: "~/Видео"
+      enabled: true
+
+    - name: "Музыка"
+      path: "~/Музыка"
+      enabled: true
+
+    - name: "Рабочий стол"
+      path: "~/Рабочий стол"
+      enabled: true
+
+    # === Проекты и работа ===
+    - name: "Проекты"
+      path: "~/projects"
+      enabled: true
+
+    - name: "DevOps"
+      path: "~/devops"
+      enabled: true
+
+    - name: "Hexlet"
+      path: "~/hexlet"
+      enabled: true
+
+    - name: "Padawan Path"
+      path: "~/padawan-path"
+      enabled: true
+
+    # === Дополнительные проекты ===
+    - name: "Gofroagregat"
+      path: "~/gofroagregat"
+      enabled: false
+
+    - name: "Racing Game"
+      path: "~/racinggame"
+      enabled: false
+
+    - name: "War40k"
+      path: "~/war40k"
+      enabled: false
+
+    - name: "Products"
+      path: "~/products"
+      enabled: false
+
+    # === Настройки и конфиги ===
+    - name: "SSH-ключи"
+      path: "~/.ssh"
+      enabled: true
+
+    - name: "Git-конфиг"
+      path: "~/.gitconfig"
+      enabled: true
+
+    - name: "Bash-конфиг"
+      path: "~/.bashrc"
+      enabled: true
+
+    - name: "Zsh-конфиг"
+      path: "~/.zshrc"
+      enabled: true
+
+    - name: "Настройки приложений"
+      path: "~/.config"
+      enabled: false   # может быть большой
+
+    # === Личные скрипты в корне ===
+    - name: "Скрипты (jobs-scraper)"
+      path: "~/jobs-scraper.py"
+      enabled: true
+
+    - name: "Скрипты (ollama-proxy)"
+      path: "~/ollama-proxy.py"
+      enabled: true
+
+    - name: "Заметки (devops-tips)"
+      path: "~/devops-tips.txt"
+      enabled: true
+
+  exclude:
+    - "*.tmp"
+    - "*.log"
+    - "__pycache__"
+    - ".cache"
+    - ".git"                # можно включить, если хочешь историю
+    - "node_modules"
+    - ".venv"
+    - "venv"
+    - ".npm"
+    - ".cargo"
+    - ".rustup"
+    - ".buildozer"
+    - ".kivy"
+    - "snap"
+    - ".megaCmd"
+    - ".steam"
+
+# =====================================================================
+# ПРОФИЛЬ: Сервер
+# =====================================================================
+server:
+  name: "Сервер"
+  targets:
+    - name: "Конфиги системы"
+      path: "/etc"
+      enabled: true
+
+    - name: "PostgreSQL"
+      path: "/var/lib/postgresql"
+      enabled: true
+
+    - name: "MySQL"
+      path: "/var/lib/mysql"
+      enabled: true
+
+    - name: "Сайты"
+      path: "/var/www"
+      enabled: true
+
+    - name: "Домашние папки"
+      path: "/home"
+      enabled: true
+
+    - name: "Root"
+      path: "/root"
+      enabled: true
+
+    - name: "Доп. софт"
+      path: "/opt"
+      enabled: true
+
+    - name: "Логи"
+      path: "/var/log"
+      enabled: false
+
+  exclude:
+    - "*.tmp"
+    - "*.log"
+    - "__pycache__"
+    - ".cache"
+    - "node_modules"
+    - ".venv"
+    - "venv"
