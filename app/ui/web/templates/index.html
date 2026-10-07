@@ -23,7 +23,7 @@
         </section>
 
         <section class="categories">
-            <h2>📂 Категории</h2>
+            <h2>📂 Категории (▶ — запустить)</h2>
             <div class="category-grid" id="categories-grid"></div>
         </section>
 
@@ -59,6 +59,20 @@
         <p>sysadmin-usb © 2026 | Автор: <strong>Чернов Александр Дмитриевич</strong></p>
         <p><a href="https://github.com/Ostenvrn/sysadmin-usb-flash-toolbox" target="_blank">GitHub</a></p>
     </footer>
+
+    <!-- Модальное окно результата -->
+    <div class="modal" id="result-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="result-title">Результат</h3>
+                <button class="modal-close" onclick="closeResultModal()">✕</button>
+            </div>
+            <pre class="modal-output" id="result-output">Загрузка...</pre>
+            <div class="modal-footer">
+                <button onclick="closeResultModal()">Закрыть</button>
+            </div>
+        </div>
+    </div>
 
     <script src="/static/js/app.js"></script>
 </body>
