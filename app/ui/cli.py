@@ -119,6 +119,10 @@ def run_function(category_key: str, func: dict, config: dict):
             from app.categories.printers import local_scanner
             local_scanner.run()
             return
+        elif func_id == "reports":
+            from app.categories.printers import reports
+            reports.run()
+            return
 
     # =================================================================
     # Заглушка для остальных
