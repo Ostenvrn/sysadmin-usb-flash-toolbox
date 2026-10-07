@@ -1,9 +1,10 @@
 """
 Проверка сети.
 Ищет: нет IP, нет интернета, потеря пакетов, проблемы с DNS.
+Интернет проверяется через HTTP (надёжнее, чем ping).
 """
 import socket
-import subprocess
+import re
 
 from app.os_detect import os_detector
 from app.core.logger import setup_logger
@@ -29,7 +30,7 @@ def check_network() -> dict:
         result["problems"].append("🔴 Нет IP-адреса — сеть не подключена")
         return result
 
-    # 2. Пинг шлюза (если можем определить)
+    # 2. Пинг шлюза
     gateway = _get_gateway()
     result["details"]["gateway"] = gateway
 
@@ -40,24 +41,36 @@ def check_network() -> dict:
             result["status"] = "critical"
             result["problems"].append(f"🔴 Шлюз {gateway} не отвечает")
 
-    # 3. Пинг 8.8.8.8 (интернет)
-    inet_ok = _ping("8.8.8.8", count=3)
-    result["details"]["internet_ping"] = inet_ok
-    if not inet_ok:
-        if result["status"] == "ok":
-            result["status"] = "warning"
-        result["problems"].append("🟡 Нет доступа в интернет (8.8.8.8 не отвечает)")
-
-    # 4. DNS
+    # 3. DNS — разрешается ли домен
     dns_ok = _resolve_dns("ya.ru")
     result["details"]["dns_ok"] = dns_ok
-    if not dns_ok:
+
+    # 4. Интернет — через HTTP (надёжнее ping)
+    http_ok = _check_http("http://ya.ru")
+    result["details"]["internet_http"] = http_ok
+
+    # 5. Интернет — через ping (может быть заблокирован)
+    ping_ok = _ping("8.8.8.8", count=3)
+    result["details"]["internet_ping"] = ping_ok
+
+    # Итоговая логика: интернет есть, если HTTP ИЛИ ping работает
+    internet_ok = http_ok or ping_ok
+
+    if not internet_ok:
+        # Ни HTTP, ни ping — интернета нет
         if result["status"] == "ok":
             result["status"] = "warning"
-        result["problems"].append("🟡 DNS не работает (ya.ru не разрешается)")
+        result["problems"].append(
+            "🟡 Нет доступа в интернет (ни HTTP, ни ping не работают)"
+        )
+    elif not ping_ok and http_ok:
+        # HTTP работает, ping — нет. Это нормально, но отметим.
+        result["details"]["note"] = (
+            "Ping заблокирован провайдером, но интернет работает (HTTP OK)"
+        )
 
-    # 5. Потеря пакетов
-    if inet_ok:
+    # 6. Потеря пакетов (только если ping работает)
+    if ping_ok:
         loss = _ping_loss("8.8.8.8", count=5)
         result["details"]["packet_loss"] = loss
         if loss is not None and loss > 10:
@@ -102,7 +115,7 @@ def _get_gateway() -> str:
 
 
 def _ping(host: str, count: int = 3) -> bool:
-    """Пингует хост. Возвращает True, если отвечает."""
+    """Пингует хост."""
     if os_detector.is_windows:
         cmd = ["ping", "-n", str(count), host]
     else:
@@ -113,7 +126,7 @@ def _ping(host: str, count: int = 3) -> bool:
 
 
 def _ping_loss(host: str, count: int = 5) -> float:
-    """Возвращает процент потери пакетов."""
+    """Процент потери пакетов."""
     if os_detector.is_windows:
         cmd = ["ping", "-n", str(count), host]
     else:
@@ -121,12 +134,8 @@ def _ping_loss(host: str, count: int = 5) -> float:
 
     rc, stdout, _ = os_detector.run_command(cmd)
 
-    # Парсим вывод
     for line in stdout.splitlines():
         if "packet loss" in line.lower() or "потерян" in line.lower():
-            # Linux: "5 packets transmitted, 5 received, 0% packet loss"
-            # Windows: "(0% loss)"
-            import re
             m = re.search(r"(\d+(?:\.\d+)?)%", line)
             if m:
                 return float(m.group(1))
@@ -135,9 +144,32 @@ def _ping_loss(host: str, count: int = 5) -> float:
 
 
 def _resolve_dns(hostname: str) -> bool:
-    """Проверяет, работает ли DNS."""
+    """Проверяет DNS."""
     try:
         socket.gethostbyname(hostname)
         return True
     except Exception:
+        return False
+
+
+def _check_http(url: str, timeout: int = 5) -> bool:
+    """
+    Проверяет интернет через HTTP-запрос.
+    Использует urllib (встроенный, без внешних зависимостей).
+    """
+    import urllib.request
+    import urllib.error
+
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "sysadmin-usb/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            return response.status == 200
+    except urllib.error.HTTPError as e:
+        # HTTP-ошибка (404 и т.п.) — но сервер ответил, значит интернет есть
+        return True
+    except Exception as e:
+        logger.debug(f"HTTP-проверка {url}: {e}")
         return False
