@@ -28,6 +28,7 @@ def run_all_checks() -> list:
         ("events", "app.categories.system.health_check.checks.events", "check_events"),
         ("processes", "app.categories.system.health_check.checks.processes", "check_processes"),
         ("security", "app.categories.system.health_check.checks.security", "check_security"),
+        ("power", "app.categories.system.health_check.checks.power", "check_power"),
     ]
 
     for name, module_path, func_name in checks:
@@ -45,6 +46,7 @@ def run_all_checks() -> list:
                 "category": name,
                 "status": "warning",
                 "problems": [f"Ошибка выполнения: {e}"],
+                "recommendations": [],
                 "details": {},
             })
             print(f"     ⚠️  {name}: ошибка — {e}")
