@@ -99,9 +99,7 @@ def run_function(category_key: str, func: dict, config: dict):
     func_id = func.get("id", "")
     logger.info(f"Запуск функции: {category_key}.{func_id}")
 
-    # =================================================================
-    # Категория: Принтеры
-    # =================================================================
+    # --- Принтеры ---
     if category_key == "printers":
         if func_id == "monitor":
             from app.categories.printers import monitor
@@ -124,9 +122,7 @@ def run_function(category_key: str, func: dict, config: dict):
             reports.run()
             return
 
-    # =================================================================
-    # Категория: Система
-    # =================================================================
+    # --- Система ---
     if category_key == "system":
         if func_id == "health_check":
             from app.categories.system import health_check
@@ -145,18 +141,18 @@ def run_function(category_key: str, func: dict, config: dict):
             update.run()
             return
 
-    # =================================================================
-    # Категория: Сеть
-    # =================================================================
+    # --- Сеть ---
     if category_key == "network":
         if func_id == "diagnostics":
             from app.categories.network import diagnostics
             diagnostics.run()
             return
+        elif func_id == "scan":
+            from app.categories.network import scan
+            scan.run()
+            return
 
-    # =================================================================
-    # Заглушка для остальных
-    # =================================================================
+    # --- Заглушка ---
     print()
     print(f"⚠️  Функция «{func['name']}» ещё не реализована.")
     print("   Будет добавлена на следующем этапе.")
