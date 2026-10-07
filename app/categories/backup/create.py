@@ -1,15 +1,11 @@
 """
 Создание бэкапа.
-- Файлы и папки (tar.gz / zip)
-- Исключения (по маскам)
-- Проверка целостности
-- Ротация (keep_last)
+Два профиля: "Рабочий компьютер" и "Сервер".
 """
 import os
 import tarfile
 import zipfile
 import yaml
-import shutil
 from pathlib import Path
 from datetime import datetime
 
@@ -27,43 +23,35 @@ BACKUP_CONFIG = PROJECT_ROOT / "config" / "backup.yaml"
 # =====================================================================
 
 def load_backup_config() -> dict:
-    """Загружает config/backup.yaml."""
     if not BACKUP_CONFIG.exists():
         logger.error(f"Конфиг не найден: {BACKUP_CONFIG}")
         return {}
-
     with open(BACKUP_CONFIG, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
 # =====================================================================
-# Вспомогательные функции
+# Вспомогательные
 # =====================================================================
 
 def expand_path(path: str) -> Path:
-    """Раскрывает ~ и переменные окружения."""
     return Path(os.path.expanduser(os.path.expandvars(path))).resolve()
 
 
 def should_exclude(file_path: Path, exclude_patterns: list) -> bool:
-    """Проверяет, нужно ли исключить файл."""
     path_str = str(file_path).lower()
     name = file_path.name.lower()
-
     for pattern in exclude_patterns:
         pattern = pattern.lower()
-        # Простая проверка: вхождение или fnmatch
         if pattern.startswith("*"):
             if name.endswith(pattern[1:]):
                 return True
         elif pattern in path_str or pattern == name:
             return True
-
     return False
 
 
 def get_dir_size(path: Path) -> int:
-    """Размер папки в байтах."""
     total = 0
     try:
         for dirpath, _, filenames in os.walk(path):
@@ -80,7 +68,6 @@ def get_dir_size(path: Path) -> int:
 
 
 def format_size(size: int) -> str:
-    """Человекочитаемый размер."""
     for unit in ["Б", "КБ", "МБ", "ГБ"]:
         if size < 1024:
             return f"{size:.1f} {unit}"
@@ -89,11 +76,10 @@ def format_size(size: int) -> str:
 
 
 # =====================================================================
-# Создание архива
+# Архивы
 # =====================================================================
 
 def create_tar_gz(source: Path, target: Path, exclude: list) -> bool:
-    """Создаёт tar.gz архив с исключениями."""
     try:
         with tarfile.open(target, "w:gz") as tar:
             if source.is_file():
@@ -105,8 +91,8 @@ def create_tar_gz(source: Path, target: Path, exclude: list) -> bool:
                     try:
                         arcname = item.relative_to(source.parent)
                         tar.add(item, arcname=arcname, recursive=False)
-                    except Exception as e:
-                        logger.debug(f"Пропуск {item}: {e}")
+                    except Exception:
+                        pass
         return True
     except Exception as e:
         logger.error(f"Ошибка tar.gz: {e}")
@@ -114,7 +100,6 @@ def create_tar_gz(source: Path, target: Path, exclude: list) -> bool:
 
 
 def create_zip(source: Path, target: Path, exclude: list) -> bool:
-    """Создаёт zip архив с исключениями."""
     try:
         with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as zf:
             if source.is_file():
@@ -125,58 +110,36 @@ def create_zip(source: Path, target: Path, exclude: list) -> bool:
                         continue
                     if item.is_file():
                         try:
-                            arcname = item.relative_to(source.parent)
-                            zf.write(item, arcname)
-                        except Exception as e:
-                            logger.debug(f"Пропуск {item}: {e}")
+                            zf.write(item, item.relative_to(source.parent))
+                        except Exception:
+                            pass
         return True
     except Exception as e:
         logger.error(f"Ошибка zip: {e}")
         return False
 
 
-# =====================================================================
-# Проверка целостности
-# =====================================================================
-
 def verify_archive(path: Path) -> bool:
-    """Проверяет целостность архива."""
     try:
-        if path.suffix == ".gz" or path.name.endswith(".tar.gz"):
+        if path.name.endswith(".tar.gz"):
             with tarfile.open(path, "r:gz") as tar:
-                # Пробуем прочитать список файлов
-                members = tar.getmembers()
-                return len(members) > 0
+                return len(tar.getmembers()) > 0
         elif path.suffix == ".zip":
             with zipfile.ZipFile(path, "r") as zf:
-                # Проверяем целостность
-                bad = zf.testzip()
-                return bad is None
+                return zf.testzip() is None
     except Exception as e:
         logger.error(f"Ошибка проверки {path}: {e}")
-        return False
     return False
 
 
-# =====================================================================
-# Ротация (удаление старых)
-# =====================================================================
-
 def rotate_backups(backup_dir: Path, target_name: str, keep_last: int):
-    """Удаляет старые бэкапы, оставляя keep_last последних."""
     if keep_last <= 0:
         return
-
-    # Ищем бэкапы этого target
-    pattern = f"{target_name}_*.tar.gz"
-    pattern_zip = f"{target_name}_*.zip"
-
     files = sorted(
-        list(backup_dir.glob(pattern)) + list(backup_dir.glob(pattern_zip)),
+        list(backup_dir.glob(f"{target_name}_*.tar.gz")) +
+        list(backup_dir.glob(f"{target_name}_*.zip")),
         reverse=True
     )
-
-    # Удаляем лишние
     for old_file in files[keep_last:]:
         try:
             old_file.unlink()
@@ -187,14 +150,13 @@ def rotate_backups(backup_dir: Path, target_name: str, keep_last: int):
 
 
 # =====================================================================
-# Основная функция
+# Бэкап одного target
 # =====================================================================
 
-def backup_target(target: dict, config: dict) -> dict:
-    """Делает бэкап одного target."""
+def backup_target(target: dict, config: dict, profile: dict) -> dict:
     name = target.get("name", "unknown")
     source_path = expand_path(target.get("path", ""))
-    exclude = config.get("exclude", [])
+    exclude = profile.get("exclude", [])
     fmt = config.get("format", "tar.gz")
     keep_last = config.get("keep_last", 5)
     verify = config.get("verify_after_create", True)
@@ -208,39 +170,34 @@ def backup_target(target: dict, config: dict) -> dict:
         "error": None,
     }
 
-    print(f"  📦 Бэкап: {name}")
+    print(f"  📦 {name}")
     print(f"     Источник: {source_path}")
 
-    # Проверяем источник
     if not source_path.exists():
-        result["error"] = f"Источник не найден: {source_path}"
-        print(f"     ❌ {result['error']}")
+        result["error"] = f"Источник не найден"
+        print(f"     ⚠️  Пропуск (не существует)")
         return result
 
-    # Размер источника
     if source_path.is_dir():
         src_size = get_dir_size(source_path)
     else:
         src_size = source_path.stat().st_size
-    print(f"     Размер источника: {format_size(src_size)}")
 
-    # Папка для бэкапов
+    print(f"     Размер: {format_size(src_size)}")
+
     backup_dir = PROJECT_ROOT / config.get("backup_dir", "output/backups")
     backup_dir.mkdir(parents=True, exist_ok=True)
 
-    # Имя архива
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     safe_name = name.replace(" ", "_").replace("/", "_")
 
     if fmt == "zip":
         archive_name = f"{safe_name}_{timestamp}.zip"
         archive_path = backup_dir / archive_name
-        print(f"     Создание ZIP...")
         ok = create_zip(source_path, archive_path, exclude)
     else:
         archive_name = f"{safe_name}_{timestamp}.tar.gz"
         archive_path = backup_dir / archive_name
-        print(f"     Создание TAR.GZ...")
         ok = create_tar_gz(source_path, archive_path, exclude)
 
     if not ok:
@@ -248,22 +205,17 @@ def backup_target(target: dict, config: dict) -> dict:
         print(f"     ❌ {result['error']}")
         return result
 
-    # Размер архива
     archive_size = archive_path.stat().st_size
-    compression_ratio = (1 - archive_size / src_size) * 100 if src_size > 0 else 0
+    ratio = (1 - archive_size / src_size) * 100 if src_size > 0 else 0
 
-    print(f"     ✅ Архив: {archive_name}")
-    print(f"     Размер архива: {format_size(archive_size)}")
-    print(f"     Сжатие: {compression_ratio:.1f}%")
+    print(f"     ✅ {archive_name}")
+    print(f"     Размер архива: {format_size(archive_size)} (сжатие {ratio:.1f}%)")
 
     result["ok"] = True
     result["archive"] = str(archive_path)
     result["size"] = archive_size
-    result["compression_ratio"] = compression_ratio
 
-    # Проверка целостности
     if verify:
-        print(f"     Проверка целостности...")
         if verify_archive(archive_path):
             print(f"     ✅ Архив целый")
             result["verified"] = True
@@ -273,15 +225,47 @@ def backup_target(target: dict, config: dict) -> dict:
             result["error"] = "Архив повреждён"
             result["verified"] = False
 
-    # Ротация
     if result["ok"]:
         rotate_backups(backup_dir, safe_name, keep_last)
 
     return result
 
 
+# =====================================================================
+# Бэкап по профилю
+# =====================================================================
+
+def backup_profile(profile_key: str, config: dict) -> list:
+    """Делает бэкап всех включённых targets профиля."""
+    profile = config.get(profile_key, {})
+    if not profile:
+        print(f"  ❌ Профиль '{profile_key}' не найден в конфиге")
+        return []
+
+    targets = [t for t in profile.get("targets", []) if t.get("enabled", True)]
+
+    if not targets:
+        print(f"  Нет включённых целей в профиле '{profile['name']}'")
+        return []
+
+    print(f"  Профиль: {profile['name']}")
+    print(f"  Целей: {len(targets)}")
+    print()
+
+    results = []
+    for target in targets:
+        result = backup_target(target, config, profile)
+        results.append(result)
+        print()
+
+    return results
+
+
+# =====================================================================
+# Точка входа
+# =====================================================================
+
 def run():
-    """Точка входа."""
     print()
     print("=" * 70)
     print("  СОЗДАНИЕ БЭКАПА")
@@ -294,31 +278,39 @@ def run():
         input("  Нажми Enter...")
         return
 
-    targets = [t for t in config.get("targets", []) if t.get("enabled", True)]
+    # Выбор профиля
+    print("  Выбери профиль:")
+    print("    [1] 💻 Рабочий компьютер")
+    print("    [2] 🖥️  Сервер")
+    print("    [0] ← Назад")
+    print()
 
-    if not targets:
-        print("  Нет включённых целей для бэкапа.")
-        print("  Проверь config/backup.yaml (поле enabled)")
-        print()
+    choice = input("  Ваш выбор: ").strip()
+
+    if choice == "0":
+        return
+    elif choice == "1":
+        profile_key = "workstation"
+    elif choice == "2":
+        profile_key = "server"
+    else:
+        print("  Неверный выбор.")
         input("  Нажми Enter...")
         return
 
-    print(f"  Целей для бэкапа: {len(targets)}")
-    print(f"  Формат: {config.get('format', 'tar.gz')}")
-    print(f"  Папка: {config.get('backup_dir', 'output/backups')}")
     print()
 
-    confirm = input("  Начать? [Y/n]: ").strip().lower()
+    confirm = input("  Начать бэкап? [Y/n]: ").strip().lower()
     if confirm == "n":
         return
 
     print()
 
-    results = []
-    for target in targets:
-        result = backup_target(target, config)
-        results.append(result)
-        print()
+    results = backup_profile(profile_key, config)
+
+    if not results:
+        input("  Нажми Enter для продолжения...")
+        return
 
     # Итог
     print("=" * 70)
@@ -326,15 +318,21 @@ def run():
     print("=" * 70)
 
     ok_count = sum(1 for r in results if r["ok"])
+    skip_count = sum(1 for r in results if not r["ok"] and "не существует" in (r.get("error") or ""))
+    fail_count = len(results) - ok_count - skip_count
     total_size = sum(r["size"] for r in results)
 
     for r in results:
-        icon = "✅" if r["ok"] else "❌"
-        print(f"  {icon} {r['name']}: {format_size(r['size']) if r['ok'] else r['error']}")
+        if r["ok"]:
+            print(f"  ✅ {r['name']}: {format_size(r['size'])}")
+        elif "не существует" in (r.get("error") or ""):
+            print(f"  ⚠️  {r['name']}: пропущен (не существует)")
+        else:
+            print(f"  ❌ {r['name']}: {r['error']}")
 
     print()
-    print(f"  Успешно: {ok_count}/{len(results)}")
-    print(f"  Всего: {format_size(total_size)}")
+    print(f"  Успешно: {ok_count}/{len(results)} | Пропущено: {skip_count} | Ошибок: {fail_count}")
+    print(f"  Всего размер: {format_size(total_size)}")
     print("=" * 70)
 
     print()
