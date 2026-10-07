@@ -1,0 +1,18 @@
+# Основные зависимости sysadmin-usb
+flask>=3.0.0
+pyyaml>=6.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# Принтеры (SNMP)
+pysnmp>=7.0.0
+
+# Сеть
+python-nmap>=0.7.1
+
+# Active Directory (Windows)
+pywin32>=306; sys_platform == "win32"
+pyad>=0.6.0; sys_platform == "win32"
+
+# Базы данных
+psycopg2-binary>=2.9.9
