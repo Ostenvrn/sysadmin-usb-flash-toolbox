@@ -102,12 +102,15 @@ categories:
         enabled: true
 
   reports:
-    enabled: false
+    enabled: true
     name: "📊 Отчёты"
     functions:
       - id: generate
-        name: "Сгенерировать отчёт"
+        name: "📄 Сгенерировать общий отчёт"
         enabled: true
       - id: export
-        name: "Экспорт (CSV/PDF)"
+        name: "📤 Экспорт (HTML, CSV)"
+        enabled: true
+      - id: history
+        name: "📜 История отчётов"
         enabled: true
