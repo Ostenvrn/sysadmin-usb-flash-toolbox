@@ -20,11 +20,14 @@ def run_all_checks() -> list:
     # Список проверок: (имя, модуль, функция)
     checks = [
         ("hardware", "app.categories.system.health_check.checks.hardware", "check_hardware"),
+        ("temperature", "app.categories.system.health_check.checks.temperature", "check_temperature"),
         ("memory", "app.categories.system.health_check.checks.memory", "check_memory"),
         ("disks", "app.categories.system.health_check.checks.disks", "check_disks"),
         ("network", "app.categories.system.health_check.checks.network", "check_network"),
+        ("wifi", "app.categories.system.health_check.checks.wifi", "check_wifi"),
         ("services", "app.categories.system.health_check.checks.services", "check_services"),
         ("drivers", "app.categories.system.health_check.checks.drivers", "check_drivers"),
+        ("usb", "app.categories.system.health_check.checks.usb", "check_usb"),
         ("events", "app.categories.system.health_check.checks.events", "check_events"),
         ("processes", "app.categories.system.health_check.checks.processes", "check_processes"),
         ("security", "app.categories.system.health_check.checks.security", "check_security"),
