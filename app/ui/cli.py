@@ -128,7 +128,11 @@ def run_function(category_key: str, func: dict, config: dict):
     # Категория: Система
     # =================================================================
     if category_key == "system":
-        if func_id == "info":
+        if func_id == "health_check":
+            from app.categories.system import health_check
+            health_check.run()
+            return
+        elif func_id == "info":
             from app.categories.system import info
             info.run()
             return
