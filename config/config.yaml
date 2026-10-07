@@ -1,0 +1,97 @@
+# =====================================================================
+# Основной конфиг sysadmin-usb.
+# Секреты — в .env, здесь только настройки.
+# =====================================================================
+
+app:
+  name: sysadmin-usb
+  version: 1.0.0
+  log_level: INFO
+
+web:
+  host: 127.0.0.1
+  port: 8080
+  debug: false
+
+# --- Категории и их подфункции ---
+categories:
+  printers:
+    enabled: true
+    name: "🖨️ Принтеры"
+    functions:
+      - id: monitor
+        name: "Мониторинг"
+        enabled: true
+      - id: auto_fix
+        name: "Автопочинка"
+        enabled: true
+      - id: reports
+        name: "Отчёты"
+        enabled: true
+
+  network:
+    enabled: true
+    name: "🌐 Сеть"
+    functions:
+      - id: scan
+        name: "Сканирование"
+        enabled: true
+      - id: map
+        name: "Карта сети"
+        enabled: true
+      - id: diagnostics
+        name: "Диагностика"
+        enabled: true
+
+  ad:
+    enabled: true
+    name: "👤 Active Directory"
+    functions:
+      - id: users
+        name: "Пользователи"
+        enabled: true
+      - id: audit
+        name: "Аудит"
+        enabled: true
+      - id: passwords
+        name: "Пароли"
+        enabled: true
+
+  backup:
+    enabled: true
+    name: "💾 Резервное копирование"
+    functions:
+      - id: create
+        name: "Создать бэкап"
+        enabled: true
+      - id: verify
+        name: "Проверить бэкап"
+        enabled: true
+      - id: restore
+        name: "Восстановить"
+        enabled: true
+
+  system:
+    enabled: true
+    name: "🖥️ Система"
+    functions:
+      - id: info
+        name: "Информация о ПК"
+        enabled: true
+      - id: cleanup
+        name: "Очистка"
+        enabled: true
+      - id: update
+        name: "Обновления"
+        enabled: true
+
+  reports:
+    enabled: true
+    name: "📊 Отчёты"
+    functions:
+      - id: generate
+        name: "Сгенерировать отчёт"
+        enabled: true
+      - id: export
+        name: "Экспорт (CSV/PDF)"
+        enabled: true
