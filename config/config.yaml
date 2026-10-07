@@ -88,17 +88,17 @@ categories:
         enabled: true
 
   ad:
-    enabled: false
+    enabled: true
     name: "👤 Active Directory"
     functions:
       - id: users
-        name: "Пользователи"
+        name: "👥 Пользователи (список, поиск, разблокировка)"
         enabled: true
       - id: audit
-        name: "Аудит"
+        name: "🔍 Аудит AD (отключённые, неактивные)"
         enabled: true
       - id: passwords
-        name: "Пароли"
+        name: "🔑 Аудит паролей (старые, неистекающие)"
         enabled: true
 
   reports:

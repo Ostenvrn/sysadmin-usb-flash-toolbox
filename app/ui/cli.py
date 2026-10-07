@@ -161,6 +161,18 @@ def run_function(category_key: str, func: dict, config: dict):
             from app.categories.backup import restore
             restore.run(); return
 
+    # --- Active Directory ---
+    if category_key == "ad":
+        if func_id == "users":
+            from app.categories.ad import users
+            users.run(); return
+        elif func_id == "audit":
+            from app.categories.ad import audit
+            audit.run(); return
+        elif func_id == "passwords":
+            from app.categories.ad import passwords
+            passwords.run(); return
+
     # --- Заглушка ---
     print()
     print(f"⚠️  Функция «{func['name']}» ещё не реализована.")
