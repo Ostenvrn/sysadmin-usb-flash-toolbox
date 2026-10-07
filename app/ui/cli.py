@@ -146,6 +146,15 @@ def run_function(category_key: str, func: dict, config: dict):
             return
 
     # =================================================================
+    # Категория: Сеть
+    # =================================================================
+    if category_key == "network":
+        if func_id == "diagnostics":
+            from app.categories.network import diagnostics
+            diagnostics.run()
+            return
+
+    # =================================================================
     # Заглушка для остальных
     # =================================================================
     print()
