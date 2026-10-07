@@ -1,6 +1,8 @@
 """
 Создание бэкапа.
-Два профиля: "Рабочий компьютер" и "Сервер".
+- Автосканирование файлов перед бэкапом
+- Проверка безопасности (права, симлинки)
+- Проверка целостности архива
 """
 import os
 import tarfile
@@ -38,6 +40,10 @@ def expand_path(path: str) -> Path:
     return Path(os.path.expanduser(os.path.expandvars(path))).resolve()
 
 
+def is_root() -> bool:
+    return os.geteuid() == 0 if hasattr(os, "geteuid") else False
+
+
 def should_exclude(file_path: Path, exclude_patterns: list) -> bool:
     path_str = str(file_path).lower()
     name = file_path.name.lower()
@@ -51,22 +57,6 @@ def should_exclude(file_path: Path, exclude_patterns: list) -> bool:
     return False
 
 
-def get_dir_size(path: Path) -> int:
-    total = 0
-    try:
-        for dirpath, _, filenames in os.walk(path):
-            for f in filenames:
-                try:
-                    fp = os.path.join(dirpath, f)
-                    if not os.path.islink(fp):
-                        total += os.path.getsize(fp)
-                except (OSError, FileNotFoundError):
-                    pass
-    except Exception:
-        pass
-    return total
-
-
 def format_size(size: int) -> str:
     for unit in ["Б", "КБ", "МБ", "ГБ"]:
         if size < 1024:
@@ -76,11 +66,137 @@ def format_size(size: int) -> str:
 
 
 # =====================================================================
+# АВТОСКАНИРОВАНИЕ
+# =====================================================================
+
+def scan_path(path: Path, exclude: list) -> dict:
+    """
+    Сканирует папку перед бэкапом.
+    Возвращает статистику: файлы, папки, размер, проблемные.
+    """
+    stats = {
+        "files": 0,
+        "dirs": 0,
+        "size": 0,
+        "symlinks": 0,
+        "no_read_access": 0,
+        "large_files": [],   # файлы > 1 ГБ
+        "errors": [],
+    }
+
+    try:
+        for item in path.rglob("*"):
+            if should_exclude(item, exclude):
+                continue
+
+            try:
+                if item.is_symlink():
+                    stats["symlinks"] += 1
+                elif item.is_dir():
+                    stats["dirs"] += 1
+                elif item.is_file():
+                    stats["files"] += 1
+                    try:
+                        size = item.stat().st_size
+                        stats["size"] += size
+                        if size > 1024**3:  # > 1 ГБ
+                            stats["large_files"].append((str(item), size))
+                    except OSError:
+                        stats["no_read_access"] += 1
+                else:
+                    stats["files"] += 1
+            except OSError as e:
+                stats["errors"].append(f"{item}: {e}")
+    except Exception as e:
+        stats["errors"].append(f"Ошибка сканирования: {e}")
+
+    return stats
+
+
+def print_scan_results(name: str, stats: dict):
+    """Выводит результаты сканирования."""
+    print(f"     📊 Сканирование:")
+    print(f"        Файлов:    {stats['files']}")
+    print(f"        Папок:     {stats['dirs']}")
+    print(f"        Размер:    {format_size(stats['size'])}")
+
+    if stats["symlinks"]:
+        print(f"        Симлинков: {stats['symlinks']}")
+
+    if stats["no_read_access"]:
+        print(f"        ⚠️  Нет доступа: {stats['no_read_access']}")
+
+    if stats["large_files"]:
+        print(f"        ⚠️  Больших файлов (>1 ГБ): {len(stats['large_files'])}")
+        for f, size in stats["large_files"][:3]:
+            print(f"           • {Path(f).name}: {format_size(size)}")
+
+    if stats["errors"]:
+        print(f"        ⚠️  Ошибок: {len(stats['errors'])}")
+        for err in stats["errors"][:3]:
+            print(f"           • {err}")
+
+
+# =====================================================================
+# ПРОВЕРКИ БЕЗОПАСНОСТИ
+# =====================================================================
+
+def check_security(path: Path) -> list:
+    """
+    Проверяет безопасность пути.
+    Возвращает список предупреждений.
+    """
+    warnings = []
+
+    # 1. Проверка на симлинки, ведущие наружу
+    try:
+        for item in path.rglob("*"):
+            if item.is_symlink():
+                try:
+                    target = item.resolve()
+                    if not str(target).startswith(str(path)):
+                        warnings.append(
+                            f"Симлинк ведёт наружу: {item.name} → {target}"
+                        )
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # 2. Проверка на файлы с паролями
+    sensitive_names = [
+        ".env", "credentials", "secrets", "password", "passwd",
+        "id_rsa", "id_ed25519", ".pgpass", ".netrc",
+    ]
+    sensitive_found = []
+    try:
+        for item in path.rglob("*"):
+            if item.is_file():
+                name_lower = item.name.lower()
+                for sens in sensitive_names:
+                    if sens in name_lower:
+                        sensitive_found.append(str(item))
+                        break
+    except Exception:
+        pass
+
+    if sensitive_found:
+        warnings.append(
+            f"Найдено {len(sensitive_found)} файлов с секретами. "
+            f"Убедись, что архив будет храниться безопасно."
+        )
+
+    return warnings
+
+
+# =====================================================================
 # Архивы
 # =====================================================================
 
-def create_tar_gz(source: Path, target: Path, exclude: list) -> bool:
+def create_tar_gz(source: Path, target: Path, exclude: list,
+                  progress_callback=None) -> bool:
     try:
+        file_count = 0
         with tarfile.open(target, "w:gz") as tar:
             if source.is_file():
                 tar.add(source, arcname=source.name)
@@ -91,6 +207,9 @@ def create_tar_gz(source: Path, target: Path, exclude: list) -> bool:
                     try:
                         arcname = item.relative_to(source.parent)
                         tar.add(item, arcname=arcname, recursive=False)
+                        file_count += 1
+                        if progress_callback and file_count % 1000 == 0:
+                            progress_callback(file_count)
                     except Exception:
                         pass
         return True
@@ -119,17 +238,59 @@ def create_zip(source: Path, target: Path, exclude: list) -> bool:
         return False
 
 
-def verify_archive(path: Path) -> bool:
+# =====================================================================
+# ПРОВЕРКА ЦЕЛОСТНОСТИ
+# =====================================================================
+
+def verify_archive(path: Path) -> dict:
+    """
+    Проверяет целостность архива.
+    Возвращает: {ok, reason, file_count}
+    """
+    result = {"ok": False, "reason": "", "file_count": 0}
+
     try:
         if path.name.endswith(".tar.gz"):
             with tarfile.open(path, "r:gz") as tar:
-                return len(tar.getmembers()) > 0
+                # 1. Проверяем, что архив читается
+                members = tar.getmembers()
+                result["file_count"] = len(members)
+
+                if not members:
+                    result["reason"] = "архив пустой"
+                    return result
+
+                # 2. Проверяем случайные файлы (не все — долго)
+                import random
+                sample = random.sample(members, min(10, len(members)))
+                for member in sample:
+                    if member.isfile():
+                        try:
+                            f = tar.extractfile(member)
+                            if f:
+                                f.read(1024)  # читаем первые 1 КБ
+                        except Exception as e:
+                            result["reason"] = f"повреждён файл {member.name}: {e}"
+                            return result
+
+                result["ok"] = True
+                result["reason"] = f"проверено {len(sample)} файлов из {len(members)}"
+
         elif path.suffix == ".zip":
             with zipfile.ZipFile(path, "r") as zf:
-                return zf.testzip() is None
+                bad = zf.testzip()
+                if bad:
+                    result["reason"] = f"повреждён файл: {bad}"
+                    return result
+                result["file_count"] = len(zf.namelist())
+                result["ok"] = True
+                result["reason"] = f"все {result['file_count']} файлов целые"
+        else:
+            result["reason"] = "неизвестный формат"
     except Exception as e:
-        logger.error(f"Ошибка проверки {path}: {e}")
-    return False
+        result["reason"] = f"ошибка проверки: {e}"
+
+    return result
 
 
 def rotate_backups(backup_dir: Path, target_name: str, keep_last: int):
@@ -144,7 +305,7 @@ def rotate_backups(backup_dir: Path, target_name: str, keep_last: int):
         try:
             old_file.unlink()
             logger.info(f"Удалён старый бэкап: {old_file.name}")
-            print(f"     🗑️  Удалён старый: {old_file.name}")
+            print(f"     🗑️  Удалён: {old_file.name}")
         except Exception as e:
             logger.error(f"Ошибка удаления {old_file}: {e}")
 
@@ -165,31 +326,64 @@ def backup_target(target: dict, config: dict, profile: dict) -> dict:
         "name": name,
         "source": str(source_path),
         "ok": False,
+        "skipped": False,
         "archive": None,
         "size": 0,
         "error": None,
+        "scan_stats": None,
+        "security_warnings": [],
+        "verify_result": None,
     }
 
     print(f"  📦 {name}")
     print(f"     Источник: {source_path}")
 
     if not source_path.exists():
-        result["error"] = f"Источник не найден"
+        result["error"] = "не существует"
+        result["skipped"] = True
         print(f"     ⚠️  Пропуск (не существует)")
         return result
 
+    # === АВТОСКАНИРОВАНИЕ ===
     if source_path.is_dir():
-        src_size = get_dir_size(source_path)
+        print(f"     📊 Сканирование...")
+        stats = scan_path(source_path, exclude)
+        result["scan_stats"] = stats
+        print_scan_results(name, stats)
+
+        if stats["files"] == 0:
+            result["error"] = "нет файлов для бэкапа"
+            print(f"     ⚠️  Пропуск (нет файлов)")
+            return result
+
+        src_size = stats["size"]
     else:
         src_size = source_path.stat().st_size
+        print(f"     Размер: {format_size(src_size)}")
 
-    print(f"     Размер: {format_size(src_size)}")
+    # === ПРОВЕРКА БЕЗОПАСНОСТИ ===
+    if source_path.is_dir():
+        print(f"     🔒 Проверка безопасности...")
+        sec_warnings = check_security(source_path)
+        result["security_warnings"] = sec_warnings
 
+        if sec_warnings:
+            for w in sec_warnings:
+                print(f"        ⚠️  {w}")
+        else:
+            print(f"        ✅ Проблем не найдено")
+
+    # === СОЗДАНИЕ АРХИВА ===
     backup_dir = PROJECT_ROOT / config.get("backup_dir", "output/backups")
     backup_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    safe_name = name.replace(" ", "_").replace("/", "_")
+    safe_name = name.replace(" ", "_").replace("/", "_").replace("(", "").replace(")", "")
+
+    print(f"     📦 Создание архива...")
+
+    def progress_cb(count):
+        print(f"        ...{count} файлов")
 
     if fmt == "zip":
         archive_name = f"{safe_name}_{timestamp}.zip"
@@ -198,10 +392,11 @@ def backup_target(target: dict, config: dict, profile: dict) -> dict:
     else:
         archive_name = f"{safe_name}_{timestamp}.tar.gz"
         archive_path = backup_dir / archive_name
-        ok = create_tar_gz(source_path, archive_path, exclude)
+        ok = create_tar_gz(source_path, archive_path, exclude,
+                           progress_callback=progress_cb)
 
     if not ok:
-        result["error"] = "Ошибка создания архива"
+        result["error"] = "ошибка создания архива"
         print(f"     ❌ {result['error']}")
         return result
 
@@ -215,14 +410,19 @@ def backup_target(target: dict, config: dict, profile: dict) -> dict:
     result["archive"] = str(archive_path)
     result["size"] = archive_size
 
+    # === ПРОВЕРКА ЦЕЛОСТНОСТИ ===
     if verify:
-        if verify_archive(archive_path):
-            print(f"     ✅ Архив целый")
+        print(f"     🔍 Проверка целостности...")
+        verify_result = verify_archive(archive_path)
+        result["verify_result"] = verify_result
+
+        if verify_result["ok"]:
+            print(f"        ✅ {verify_result['reason']}")
             result["verified"] = True
         else:
-            print(f"     ❌ Архив повреждён!")
+            print(f"        ❌ {verify_result['reason']}")
             result["ok"] = False
-            result["error"] = "Архив повреждён"
+            result["error"] = f"архив повреждён: {verify_result['reason']}"
             result["verified"] = False
 
     if result["ok"]:
@@ -236,19 +436,20 @@ def backup_target(target: dict, config: dict, profile: dict) -> dict:
 # =====================================================================
 
 def backup_profile(profile_key: str, config: dict) -> list:
-    """Делает бэкап всех включённых targets профиля."""
     profile = config.get(profile_key, {})
     if not profile:
-        print(f"  ❌ Профиль '{profile_key}' не найден в конфиге")
+        print(f"  ❌ Профиль '{profile_key}' не найден")
         return []
 
     targets = [t for t in profile.get("targets", []) if t.get("enabled", True)]
 
     if not targets:
-        print(f"  Нет включённых целей в профиле '{profile['name']}'")
+        print(f"  Нет включённых целей в профиле")
         return []
 
-    print(f"  Профиль: {profile['name']}")
+    print(f"  Профиль: {profile.get('name', profile_key)}")
+    if profile.get("description"):
+        print(f"  Описание: {profile['description']}")
     print(f"  Целей: {len(targets)}")
     print()
 
@@ -280,26 +481,42 @@ def run():
 
     # Выбор профиля
     print("  Выбери профиль:")
-    print("    [1] 💻 Рабочий компьютер")
-    print("    [2] 🖥️  Сервер")
+    print("    [1] 💻 Рабочий компьютер (данные)")
+    print("    [2] 🏠 Полный бэкап домашней папки (~)")
+    print("    [3] 🖥️  Система (требует root)")
+    print("    [4] 🖥️  Сервер (требует root)")
     print("    [0] ← Назад")
     print()
 
     choice = input("  Ваш выбор: ").strip()
 
+    profiles = {
+        "1": "workstation",
+        "2": "full_home",
+        "3": "system",
+        "4": "server",
+    }
+
     if choice == "0":
         return
-    elif choice == "1":
-        profile_key = "workstation"
-    elif choice == "2":
-        profile_key = "server"
-    else:
+    if choice not in profiles:
         print("  Неверный выбор.")
         input("  Нажми Enter...")
         return
 
-    print()
+    profile_key = profiles[choice]
+    profile = config.get(profile_key, {})
 
+    # Проверка root
+    if profile.get("requires_root") and not is_root():
+        print()
+        print("  ⚠️  Этот профиль требует прав root!")
+        print("  Запусти: sudo ./start.sh")
+        print()
+        input("  Нажми Enter...")
+        return
+
+    print()
     confirm = input("  Начать бэкап? [Y/n]: ").strip().lower()
     if confirm == "n":
         return
@@ -318,21 +535,24 @@ def run():
     print("=" * 70)
 
     ok_count = sum(1 for r in results if r["ok"])
-    skip_count = sum(1 for r in results if not r["ok"] and "не существует" in (r.get("error") or ""))
+    skip_count = sum(1 for r in results if r.get("skipped"))
     fail_count = len(results) - ok_count - skip_count
     total_size = sum(r["size"] for r in results)
+    warnings_count = sum(len(r.get("security_warnings", [])) for r in results)
 
     for r in results:
         if r["ok"]:
             print(f"  ✅ {r['name']}: {format_size(r['size'])}")
-        elif "не существует" in (r.get("error") or ""):
-            print(f"  ⚠️  {r['name']}: пропущен (не существует)")
+        elif r.get("skipped"):
+            print(f"  ⚠️  {r['name']}: пропущен")
         else:
             print(f"  ❌ {r['name']}: {r['error']}")
 
     print()
     print(f"  Успешно: {ok_count}/{len(results)} | Пропущено: {skip_count} | Ошибок: {fail_count}")
-    print(f"  Всего размер: {format_size(total_size)}")
+    print(f"  Всего: {format_size(total_size)}")
+    if warnings_count:
+        print(f"  ⚠️  Предупреждений безопасности: {warnings_count}")
     print("=" * 70)
 
     print()
