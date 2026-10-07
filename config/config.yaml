@@ -1,6 +1,5 @@
 # =====================================================================
 # Основной конфиг sysadmin-usb.
-# Секреты — в .env, здесь только настройки.
 # =====================================================================
 
 app:
@@ -13,7 +12,6 @@ web:
   port: 8080
   debug: false
 
-# --- Категории и их подфункции ---
 categories:
   printers:
     enabled: true
@@ -81,6 +79,9 @@ categories:
     enabled: true
     name: "🖥️ Система"
     functions:
+      - id: health_check
+        name: "🏥 Диагностика ПК (Health Check)"
+        enabled: true
       - id: info
         name: "Информация о ПК"
         enabled: true
