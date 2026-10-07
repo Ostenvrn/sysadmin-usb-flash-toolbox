@@ -3,9 +3,10 @@
 Определяет ОС, загружает конфиг, запускает меню или веб-интерфейс.
 """
 import sys
+import getpass
 from pathlib import Path
 
-# Добавляем корень проекта в sys.path, чтобы работали импорты
+# Добавляем корень проекта в sys.path
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "libs"))
@@ -30,39 +31,49 @@ def main():
     # 3. Загружаем конфиг
     config = load_config()
 
-    # 4. Показываем приветствие
-    print("=" * 60)
-    print(f"  SYSADMIN-USB v{config['app']['version']}")
-    print(f"  ОС: {info['system']} {info['release']} ({info['architecture']})")
-    print(f"  Hostname: {info['hostname']}")
-    print("=" * 60)
+    # 4. Показываем ASCII-баннер + приветствие
+    from app.ui.banner import print_ascii_banner, print_welcome
+    from app.ui.colors import dim, bright_cyan, bright_yellow, C
+
+    print_ascii_banner()
+
+    try:
+        user = getpass.getuser()
+    except Exception:
+        user = ""
+
+    print_welcome(
+        hostname=info['hostname'],
+        os_name=f"{info['system']} {info['release']}",
+        user=user,
+    )
+
+    # 5. Выбор режима
+    print(f"  {dim('Выберите режим работы:')}")
+    print()
+    print(f"    {bright_cyan('[1]')} 💻  Консольное меню")
+    print(f"    {bright_cyan('[2]')} 🌐  Веб-интерфейс (в браузере)")
+    print(f"    {bright_cyan('[3]')} 🔀  Оба (консоль + веб)")
+    print(f"    {dim('[0]')} 🚪  Выход")
     print()
 
-    # 5. Спрашиваем, какой интерфейс использовать
-    print("Выберите режим работы:")
-    print("  [1] Консольное меню")
-    print("  [2] Веб-интерфейс (откроется в браузере)")
-    print("  [3] Оба (консоль + веб)")
-    print("  [0] Выход")
-    print()
-
-    choice = input("Ваш выбор: ").strip()
+    choice = input(f"  {bright_yellow('Ваш выбор')} {dim('[1]')}: ").strip() or "1"
 
     if choice == "1":
         run_cli(config)
     elif choice == "2":
         run_web(config)
     elif choice == "3":
-        # Запускаем веб в фоне, консоль — в foreground
         import threading
         web_thread = threading.Thread(target=run_web, args=(config,), daemon=True)
         web_thread.start()
         run_cli(config)
     elif choice == "0":
-        print("До свидания!")
+        from app.ui.banner import print_footer
+        print_footer()
         sys.exit(0)
     else:
-        print("Неверный выбор. Попробуйте снова.")
+        print(f"\n  {C.BRIGHT_RED}Неверный выбор.{C.RESET}\n")
         main()
 
 
