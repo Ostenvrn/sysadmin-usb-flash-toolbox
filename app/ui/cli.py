@@ -8,7 +8,7 @@ logger = setup_logger("cli")
 
 
 def show_main_menu(config: dict) -> str:
-    """Показывает главное меню. Возвращает выбор пользователя."""
+    """Показывает главное меню."""
     print()
     print("=" * 60)
     print("  ГЛАВНОЕ МЕНЮ")
@@ -28,7 +28,7 @@ def show_main_menu(config: dict) -> str:
 
 
 def show_category_menu(category_key: str, category: dict, config: dict) -> str:
-    """Показывает меню категории. Возвращает выбор."""
+    """Показывает меню категории."""
     print()
     print("=" * 60)
     print(f"  {category['name']}")
@@ -100,10 +100,8 @@ def run_function(category_key: str, func: dict, config: dict):
     logger.info(f"Запуск функции: {category_key}.{func_id}")
 
     # =================================================================
-    # Диспетчер: какой модуль вызывать
+    # Категория: Принтеры
     # =================================================================
-
-    # --- Категория: Принтеры ---
     if category_key == "printers":
         if func_id == "monitor":
             from app.categories.printers import monitor
@@ -117,8 +115,14 @@ def run_function(category_key: str, func: dict, config: dict):
             from app.categories.printers import scanner
             scanner.run()
             return
+        elif func_id == "local_scanner":
+            from app.categories.printers import local_scanner
+            local_scanner.run()
+            return
 
-    # --- Заглушка для остальных ---
+    # =================================================================
+    # Заглушка для остальных
+    # =================================================================
     print()
     print(f"⚠️  Функция «{func['name']}» ещё не реализована.")
     print("   Будет добавлена на следующем этапе.")
