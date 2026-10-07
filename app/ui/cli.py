@@ -8,7 +8,6 @@ logger = setup_logger("cli")
 
 
 def show_main_menu(config: dict) -> str:
-    """Показывает главное меню."""
     print()
     print("=" * 60)
     print("  ГЛАВНОЕ МЕНЮ")
@@ -28,7 +27,6 @@ def show_main_menu(config: dict) -> str:
 
 
 def show_category_menu(category_key: str, category: dict, config: dict) -> str:
-    """Показывает меню категории."""
     print()
     print("=" * 60)
     print(f"  {category['name']}")
@@ -47,7 +45,6 @@ def show_category_menu(category_key: str, category: dict, config: dict) -> str:
 
 
 def run_cli(config: dict):
-    """Запускает консольное меню."""
     logger.info("Запуск консольного меню")
 
     while True:
@@ -95,93 +92,76 @@ def run_cli(config: dict):
 
 
 def run_function(category_key: str, func: dict, config: dict):
-    """Запускает конкретную функцию."""
     func_id = func.get("id", "")
     logger.info(f"Запуск функции: {category_key}.{func_id}")
 
-    # =================================================================
-    # Категория: Принтеры
-    # =================================================================
+    # --- Принтеры ---
     if category_key == "printers":
         if func_id == "monitor":
             from app.categories.printers import monitor
-            monitor.run()
-            return
+            monitor.run(); return
         elif func_id == "auto_fix":
             from app.categories.printers import auto_fix
-            auto_fix.run()
-            return
+            auto_fix.run(); return
         elif func_id == "scanner":
             from app.categories.printers import scanner
-            scanner.run()
-            return
+            scanner.run(); return
         elif func_id == "local_scanner":
             from app.categories.printers import local_scanner
-            local_scanner.run()
-            return
+            local_scanner.run(); return
         elif func_id == "reports":
             from app.categories.printers import reports
-            reports.run()
-            return
+            reports.run(); return
 
-    # =================================================================
-    # Категория: Система
-    # =================================================================
+    # --- Система ---
     if category_key == "system":
         if func_id == "health_check":
             from app.categories.system import health_check
-            health_check.run()
-            return
+            health_check.run(); return
         elif func_id == "info":
             from app.categories.system import info
-            info.run()
-            return
+            info.run(); return
         elif func_id == "cleanup":
             from app.categories.system import cleanup
-            cleanup.run()
-            return
+            cleanup.run(); return
         elif func_id == "update":
             from app.categories.system import update
-            update.run()
-            return
+            update.run(); return
 
-    # =================================================================
-    # Категория: Сеть
-    # =================================================================
+    # --- Сеть ---
     if category_key == "network":
         if func_id == "diagnostics":
             from app.categories.network import diagnostics
-            diagnostics.run()
-            return
+            diagnostics.run(); return
         elif func_id == "scan":
             from app.categories.network import scan
-            scan.run()
-            return
+            scan.run(); return
         elif func_id == "ports":
             from app.categories.network import ports
-            ports.run()
-            return
+            ports.run(); return
         elif func_id == "map":
             from app.categories.network import map as net_map
-            net_map.run()
-            return
+            net_map.run(); return
 
-    # =================================================================
-    # Категория: Бэкапы
-    # =================================================================
+    # --- Бэкапы ---
     if category_key == "backup":
         if func_id == "create":
             from app.categories.backup import create
-            create.run()
-            return
+            create.run(); return
         elif func_id == "disk_image":
             from app.categories.backup import disk_image
-            disk_image.run()
-            return
+            disk_image.run(); return
+        elif func_id == "list":
+            from app.categories.backup import list as backup_list
+            backup_list.run(); return
+        elif func_id == "verify":
+            from app.categories.backup import verify
+            verify.run(); return
+        elif func_id == "restore":
+            from app.categories.backup import restore
+            restore.run(); return
 
-    # =================================================================
-    # Заглушка для остальных
-    # =================================================================
+    # --- Заглушка ---
     print()
     print(f"⚠️  Функция «{func['name']}» ещё не реализована.")
     print("   Будет добавлена на следующем этапе.")
