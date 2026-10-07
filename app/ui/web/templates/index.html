@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>sysadmin-usb — Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header>
+        <div class="logo">
+            <h1>⚙️ SYSADMIN-USB</h1>
+            <span class="version">v1.0.0</span>
+        </div>
+        <div class="author">
+            Чернов Александр Дмитриевич
+        </div>
+    </header>
+
+    <main>
+        <section class="system-info" id="system-info">
+            <div class="loading">Загрузка информации о системе...</div>
+        </section>
+
+        <section class="categories">
+            <h2>📂 Категории</h2>
+            <div class="category-grid" id="categories-grid"></div>
+        </section>
+
+        <section class="dashboard">
+            <h2>📊 Дашборд</h2>
+            <div class="widgets">
+                <div class="widget" id="widget-health">
+                    <div class="widget-title">🏥 Health Check</div>
+                    <div class="widget-content">Загрузка...</div>
+                </div>
+                <div class="widget" id="widget-printers">
+                    <div class="widget-title">🖨️ Принтеры</div>
+                    <div class="widget-content">Загрузка...</div>
+                </div>
+                <div class="widget" id="widget-backups">
+                    <div class="widget-title">💾 Бэкапы</div>
+                    <div class="widget-content">Загрузка...</div>
+                </div>
+                <div class="widget" id="widget-network">
+                    <div class="widget-title">🌐 Сеть</div>
+                    <div class="widget-content">Загрузка...</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="reports">
+            <h2>📄 Последние отчёты</h2>
+            <div id="reports-list">Загрузка...</div>
+        </section>
+    </main>
+
+    <footer>
+        <p>sysadmin-usb © 2026 | Автор: <strong>Чернов Александр Дмитриевич</strong></p>
+        <p><a href="https://github.com/Ostenvrn/sysadmin-usb-flash-toolbox" target="_blank">GitHub</a></p>
+    </footer>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

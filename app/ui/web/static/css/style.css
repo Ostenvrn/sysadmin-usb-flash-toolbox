@@ -1,0 +1,278 @@
+/* =====================================================================
+   SYSADMIN-USB — стили веб-интерфейса
+   Тёмная тема, минимализм, GitHub-стиль
+   ===================================================================== */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+    background: #0d1117;
+    color: #c9d1d9;
+    line-height: 1.6;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* === Header === */
+header {
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    padding: 20px 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.logo {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.logo h1 {
+    font-size: 24px;
+    color: #58a6ff;
+    font-weight: 600;
+}
+
+.version {
+    font-size: 12px;
+    color: #8b949e;
+    background: #21262d;
+    padding: 2px 8px;
+    border-radius: 12px;
+}
+
+.author {
+    font-size: 14px;
+    color: #8b949e;
+}
+
+.author::before {
+    content: "👤 ";
+}
+
+/* === Main === */
+main {
+    flex: 1;
+    padding: 30px 40px;
+    max-width: 1400px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+section {
+    margin-bottom: 40px;
+}
+
+section h2 {
+    font-size: 18px;
+    color: #58a6ff;
+    margin-bottom: 20px;
+    font-weight: 600;
+}
+
+/* === Системная информация === */
+.system-info {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.system-info .info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.info-item .label {
+    font-size: 12px;
+    color: #8b949e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.info-item .value {
+    font-size: 16px;
+    color: #c9d1d9;
+    font-weight: 500;
+}
+
+/* === Категории === */
+.category-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 16px;
+}
+
+.category-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 20px;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.category-card:hover {
+    border-color: #58a6ff;
+    background: #1c2128;
+    transform: translateY(-2px);
+}
+
+.category-card .title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #c9d1d9;
+    margin-bottom: 8px;
+}
+
+.category-card .functions {
+    font-size: 13px;
+    color: #8b949e;
+}
+
+.category-card .functions li {
+    list-style: none;
+    padding: 2px 0;
+}
+
+.category-card .functions li::before {
+    content: "• ";
+    color: #58a6ff;
+}
+
+/* === Дашборд (виджеты) === */
+.widgets {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+}
+
+.widget {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.widget-title {
+    font-size: 14px;
+    color: #8b949e;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.widget-content {
+    font-size: 14px;
+    color: #c9d1d9;
+}
+
+.widget-content .big-number {
+    font-size: 36px;
+    font-weight: 700;
+    color: #58a6ff;
+    line-height: 1;
+}
+
+.widget-content .sub {
+    font-size: 12px;
+    color: #8b949e;
+    margin-top: 8px;
+}
+
+.widget-content .ok { color: #3fb950; }
+.widget-content .warning { color: #d29922; }
+.widget-content .critical { color: #f85149; }
+
+/* === Отчёты === */
+#reports-list {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.report-item {
+    padding: 10px 0;
+    border-bottom: 1px solid #21262d;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.report-item:last-child {
+    border-bottom: none;
+}
+
+.report-item .name {
+    font-family: monospace;
+    font-size: 13px;
+    color: #79c0ff;
+}
+
+.report-item .meta {
+    font-size: 12px;
+    color: #8b949e;
+}
+
+/* === Footer === */
+footer {
+    background: #161b22;
+    border-top: 1px solid #30363d;
+    padding: 20px 40px;
+    text-align: center;
+    font-size: 13px;
+    color: #8b949e;
+}
+
+footer a {
+    color: #58a6ff;
+    text-decoration: none;
+}
+
+footer a:hover {
+    text-decoration: underline;
+}
+
+footer strong {
+    color: #c9d1d9;
+}
+
+/* === Loading === */
+.loading {
+    color: #8b949e;
+    font-style: italic;
+}
+
+.loading::after {
+    content: "...";
+    animation: dots 1.5s infinite;
+}
+
+@keyframes dots {
+    0%, 20% { content: "."; }
+    40% { content: ".."; }
+    60%, 100% { content: "..."; }
+}
+
+/* === Адаптив === */
+@media (max-width: 768px) {
+    header { padding: 15px 20px; flex-direction: column; gap: 8px; }
+    main { padding: 20px; }
+    footer { padding: 15px 20px; }
+}
