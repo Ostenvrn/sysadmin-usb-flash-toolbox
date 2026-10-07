@@ -1,7 +1,11 @@
 """
-Мониторинг принтеров по SNMP.
-Собирает: модель, статус, уровень тонера, количество страниц.
-Читает оба конфига: config/printers.yaml (ручной) и config/printers_auto.yaml (авто).
+Мониторинг принтеров.
+- Сетевые: SNMP-опрос (тонер, статус, страницы)
+- Локальные: только список (USB, без SNMP)
+Читает три конфига:
+  - config/printers.yaml (ручной)
+  - config/printers_auto.yaml (авто, сетевые)
+  - config/printers_local.yaml (локальные USB)
 """
 import json
 import yaml
@@ -12,15 +16,15 @@ from app.core.logger import setup_logger
 
 logger = setup_logger("printer-monitor")
 
-# Пути
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.resolve()
 PRINTERS_CONFIG = PROJECT_ROOT / "config" / "printers.yaml"
 PRINTERS_AUTO_CONFIG = PROJECT_ROOT / "config" / "printers_auto.yaml"
+PRINTERS_LOCAL_CONFIG = PROJECT_ROOT / "config" / "printers_local.yaml"
 OUTPUT_DIR = PROJECT_ROOT / "output" / "scans"
 
 
 # =====================================================================
-# SNMP OID (стандартные идентификаторы для принтеров)
+# SNMP OID
 # =====================================================================
 OIDS = {
     "model": "1.3.6.1.2.1.25.3.2.1.3.1",
@@ -44,7 +48,7 @@ STATUS_MAP = {
 # =====================================================================
 
 def load_printers_from_file(path: Path) -> list:
-    """Загружает принтеры из одного YAML-файла."""
+    """Загружает принтеры из YAML-файла."""
     if not path.exists():
         return []
 
@@ -58,17 +62,11 @@ def load_printers_from_file(path: Path) -> list:
         return []
 
 
-def load_printers() -> list:
-    """
-    Загружает принтеры из обоих конфигов:
-    - config/printers.yaml (ручной)
-    - config/printers_auto.yaml (авто)
-    Дедупликация по IP: если IP есть в обоих — берётся из ручного.
-    """
+def load_network_printers() -> list:
+    """Загружает сетевые принтеры (ручной + авто)."""
     manual = load_printers_from_file(PRINTERS_CONFIG)
     auto = load_printers_from_file(PRINTERS_AUTO_CONFIG)
 
-    # Дедупликация по IP
     seen_ips = set()
     result = []
 
@@ -86,22 +84,30 @@ def load_printers() -> list:
             p["_source"] = "auto"
             result.append(p)
 
-    logger.info(f"Загружено принтеров: ручных {len(manual)}, авто {len(auto)}, итого {len(result)}")
+    logger.info(f"Сетевых принтеров: ручных {len(manual)}, авто {len(auto)}, итого {len(result)}")
     return result
 
 
+def load_local_printers() -> list:
+    """Загружает локальные принтеры (USB)."""
+    local = load_printers_from_file(PRINTERS_LOCAL_CONFIG)
+    logger.info(f"Локальных принтеров: {len(local)}")
+    return local
+
+
 # =====================================================================
-# SNMP-опрос
+# SNMP-опрос сетевых
 # =====================================================================
 
 def query_printer(printer: dict) -> dict:
-    """Опрашивает один принтер по SNMP."""
+    """Опрашивает сетевой принтер по SNMP."""
     result = {
         "name": printer.get("name", "unknown"),
         "ip": printer.get("ip", "unknown"),
         "model": printer.get("model", "unknown"),
         "location": printer.get("location", "unknown"),
         "source": printer.get("_source", "unknown"),
+        "type": "network",
         "status": "offline",
         "toner_level": None,
         "toner_percent": None,
@@ -117,8 +123,7 @@ def query_printer(printer: dict) -> dict:
             ObjectType, ObjectIdentity,
         )
     except ImportError:
-        result["error"] = "pysnmp не установлен. Выполни: pip install --target=libs/ pysnmp"
-        logger.error(result["error"])
+        result["error"] = "pysnmp не установлен"
         return result
 
     ip = printer["ip"]
@@ -136,11 +141,10 @@ def query_printer(printer: dict) -> dict:
         )
 
         if error_indication:
-            result["error"] = f"SNMP ошибка: {error_indication}"
+            result["error"] = f"SNMP: {error_indication}"
             return result
-
         if error_status:
-            result["error"] = f"SNMP статус: {error_status.prettyPrint()}"
+            result["error"] = f"SNMP: {error_status.prettyPrint()}"
             return result
 
         oid_keys = list(OIDS.keys())
@@ -168,8 +172,6 @@ def query_printer(printer: dict) -> dict:
                     (result["toner_level"] / result["toner_max"]) * 100, 1
                 )
 
-        logger.info(f"{result['name']} ({ip}): {result['status']}, тонер: {result['toner_percent']}%")
-
     except Exception as e:
         result["error"] = f"Исключение: {e}"
         logger.error(f"{result['name']} ({ip}): {result['error']}")
@@ -177,23 +179,42 @@ def query_printer(printer: dict) -> dict:
     return result
 
 
-def monitor_all(printers: list = None) -> list:
-    """Опрашивает все принтеры."""
-    if printers is None:
-        printers = load_printers()
+def monitor_all() -> dict:
+    """Опрашивает сетевые принтеры + собирает локальные."""
+    network = load_network_printers()
+    local = load_local_printers()
 
-    results = []
-    for printer in printers:
-        results.append(query_printer(printer))
+    network_results = [query_printer(p) for p in network]
 
-    return results
+    local_results = []
+    for p in local:
+        local_results.append({
+            "name": p.get("name", "unknown"),
+            "ip": None,
+            "model": p.get("driver", "unknown"),
+            "location": p.get("location", ""),
+            "source": "local",
+            "type": "local",
+            "status": p.get("status", "unknown"),
+            "port": p.get("port", "unknown"),
+            "toner_level": None,
+            "toner_percent": None,
+            "pages_total": None,
+            "error": None,
+            "checked_at": datetime.now().isoformat(),
+        })
+
+    return {
+        "network": network_results,
+        "local": local_results,
+    }
 
 
 # =====================================================================
 # Отчёт
 # =====================================================================
 
-def save_report(results: list) -> Path:
+def save_report(results: dict) -> Path:
     """Сохраняет отчёт в JSON."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -206,68 +227,84 @@ def save_report(results: list) -> Path:
     return filename
 
 
-def print_report(results: list):
+def print_report(results: dict):
     """Выводит отчёт в консоль."""
+    network = results["network"]
+    local = results["local"]
+
     print()
     print("=" * 80)
     print("  МОНИТОРИНГ ПРИНТЕРОВ")
     print("=" * 80)
     print()
 
-    for r in results:
+    # --- Сетевые ---
+    print(f"  🌐 СЕТЕВЫЕ ПРИНТЕРЫ ({len(network)})")
+    print("-" * 80)
+    if not network:
+        print("  Нет сетевых принтеров. Запусти «Сканер сети».")
+    for r in network:
         status_icon = "🟢" if r["status"] in ("Простой", "Печать") else "🔴"
         source_icon = "📝" if r.get("source") == "manual" else "🔍"
         print(f"  {status_icon} {source_icon} {r['name']} ({r['ip']})")
         print(f"     Модель:  {r['model']}")
         print(f"     Статус:  {r['status']}")
-
         if r.get("toner_percent") is not None:
             toner = r["toner_percent"]
-            if toner < 10:
-                toner_icon = "🔴"
-            elif toner < 30:
-                toner_icon = "🟡"
-            else:
-                toner_icon = "🟢"
-            print(f"     Тонер:   {toner_icon} {toner}%")
-
+            icon = "🔴" if toner < 10 else "🟡" if toner < 30 else "🟢"
+            print(f"     Тонер:   {icon} {toner}%")
         if r.get("pages_total"):
             print(f"     Страниц: {r['pages_total']}")
-
         if r.get("error"):
             print(f"     Ошибка:  {r['error']}")
-
         print()
 
-    total = len(results)
-    online = sum(1 for r in results if r["status"] not in ("offline", "Неизвестно"))
-    with_error = sum(1 for r in results if r["error"])
+    # --- Локальные ---
+    print(f"  🔌 ЛОКАЛЬНЫЕ ПРИНТЕРЫ ({len(local)})")
+    print("-" * 80)
+    if not local:
+        print("  Нет локальных принтеров. Запусти «Локальные принтеры (USB)».")
+    for r in local:
+        print(f"  🔌 {r['name']}")
+        print(f"     Драйвер: {r['model']}")
+        print(f"     Порт:    {r['port']}")
+        print(f"     Статус:  {r['status']}")
+        print()
+
+    # --- Итог ---
+    total_network = len(network)
+    online = sum(1 for r in network if r["status"] not in ("offline", "Неизвестно"))
     low_toner = sum(
-        1 for r in results
+        1 for r in network
         if r.get("toner_percent") is not None and r["toner_percent"] < 10
     )
 
-    print("-" * 80)
-    print(f"  Всего: {total} | Онлайн: {online} | Ошибок: {with_error} | Тонер < 10%: {low_toner}")
+    print("=" * 80)
+    print(f"  ИТОГО: Всего {total_network + len(local)} | "
+          f"🌐 Сетевых {total_network} (онлайн {online}) | "
+          f"🔌 Локальных {len(local)} | "
+          f"Тонер < 10%: {low_toner}")
     print("=" * 80)
 
 
 def run():
-    """Точка входа для мониторинга."""
+    """Точка входа."""
     print()
-    print("Загрузка списка принтеров...")
-    printers = load_printers()
+    print("Загрузка принтеров...")
 
-    if not printers:
-        print("Список принтеров пуст. Проверь config/printers.yaml")
-        print("Или запусти «Сканер сети» для автопоиска.")
+    results = monitor_all()
+
+    if not results["network"] and not results["local"]:
+        print("Список принтеров пуст.")
+        print("Запусти «Сканер сети» или «Локальные принтеры (USB)».")
+        print()
+        input("Нажми Enter для продолжения...")
         return
 
-    print(f"Найдено принтеров: {len(printers)}")
-    print("Опрос по SNMP...")
+    print(f"Сетевых: {len(results['network'])}, локальных: {len(results['local'])}")
+    print("Опрос сетевых по SNMP...")
     print()
 
-    results = monitor_all(printers)
     print_report(results)
 
     report_file = save_report(results)
