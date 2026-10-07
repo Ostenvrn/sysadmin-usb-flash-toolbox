@@ -1,0 +1,47 @@
+# =====================================================================
+# Конфиг ruff (линтер + форматтер Python) и mypy (проверка типов).
+# =====================================================================
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "libs",
+    "python",
+    "__pycache__",
+    "output",
+    "logs",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "C4",  # comprehensions
+    "SIM", # simplify
+]
+ignore = [
+    "E501",  # длина строки — проверяется форматтером
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "F401"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+no_strict_optional = true
+warn_unused_ignores = true
+exclude = [
+    "libs/",
+    "python/",
+    "venv/",
+    ".venv/",
+]
