@@ -167,3 +167,9 @@ redisdata/
 notes/
 TODO.local.md
 NOTES.md
+# Портативный Python для Windows (скачивается отдельно, не в git)
+python/
+!python/.gitkeep
+
+# Кэш pip
+pip-wheel-metadata/
