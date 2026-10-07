@@ -50,34 +50,6 @@ categories:
         name: "🔍 Сканирование портов"
         enabled: true
 
-  ad:
-    enabled: true
-    name: "👤 Active Directory"
-    functions:
-      - id: users
-        name: "Пользователи"
-        enabled: true
-      - id: audit
-        name: "Аудит"
-        enabled: true
-      - id: passwords
-        name: "Пароли"
-        enabled: true
-
-  backup:
-    enabled: true
-    name: "💾 Резервное копирование"
-    functions:
-      - id: create
-        name: "Создать бэкап"
-        enabled: true
-      - id: verify
-        name: "Проверить бэкап"
-        enabled: true
-      - id: restore
-        name: "Восстановить"
-        enabled: true
-
   system:
     enabled: true
     name: "🖥️ Система"
@@ -95,8 +67,39 @@ categories:
         name: "Обновления"
         enabled: true
 
-  reports:
+  backup:
     enabled: true
+    name: "💾 Резервное копирование"
+    functions:
+      - id: create
+        name: "📦 Создать бэкап"
+        enabled: true
+      - id: verify
+        name: "✅ Проверить бэкап"
+        enabled: true
+      - id: restore
+        name: "♻️ Восстановить"
+        enabled: true
+      - id: list
+        name: "📋 Список бэкапов"
+        enabled: true
+
+  ad:
+    enabled: false
+    name: "👤 Active Directory"
+    functions:
+      - id: users
+        name: "Пользователи"
+        enabled: true
+      - id: audit
+        name: "Аудит"
+        enabled: true
+      - id: passwords
+        name: "Пароли"
+        enabled: true
+
+  reports:
+    enabled: false
     name: "📊 Отчёты"
     functions:
       - id: generate
