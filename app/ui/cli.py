@@ -105,6 +105,9 @@ def run_function(category_key: str, func: dict, config: dict):
     if category_key == "printers" and func_id == "monitor":
         from app.categories.printers import monitor
         monitor.run()
+    elif category_key == "printers" and func_id == "auto_fix":
+        from app.categories.printers import auto_fix
+        auto_fix.run()
     else:
         print()
         print(f"⚠️  Функция «{func['name']}» ещё не реализована.")
