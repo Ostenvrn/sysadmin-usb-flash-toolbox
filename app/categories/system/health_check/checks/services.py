@@ -9,21 +9,21 @@ logger = setup_logger("check-services")
 
 
 # Критичные службы по ОС
+# Для Linux-ноутбуков ssh не критичен — убираем
 CRITICAL_SERVICES = {
     "Windows": [
-        "Spooler",         # Печать
-        "Dhcp",            # DHCP-клиент
-        "Dnscache",        # DNS-клиент
-        "LanmanWorkstation",  # Сеть
-        "Themes",          # Темы
-        "AudioSrv",        # Звук
-        "WinDefend",       # Защитник Windows
+        "Spooler",
+        "Dhcp",
+        "Dnscache",
+        "LanmanWorkstation",
+        "Themes",
+        "AudioSrv",
+        "WinDefend",
     ],
     "Linux": [
-        "cups",            # Печать
-        "NetworkManager",  # Сеть
-        "systemd-resolved",  # DNS
-        "ssh",             # SSH
+        "cups",
+        "NetworkManager",
+        "systemd-resolved",
     ],
 }
 
