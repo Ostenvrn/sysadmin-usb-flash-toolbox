@@ -1,6 +1,6 @@
 """
 Проверка памяти (RAM, swap).
-Ищет: высокое использование, утечки, нехватку swap.
+Кроссплатформенно: Linux (/proc/meminfo) + Windows (WMI).
 """
 import os
 from app.os_detect import os_detector
@@ -10,61 +10,48 @@ logger = setup_logger("check-memory")
 
 
 def check_memory() -> dict:
-    """
-    Проверяет память.
-    Возвращает dict с полями:
-      - status: 'ok' | 'warning' | 'critical'
-      - problems: список проблем
-      - details: детали (total, used, percent, swap)
-    """
     result = {
         "category": "Память (RAM)",
         "status": "ok",
         "problems": [],
+        "recommendations": [],
         "details": {},
     }
 
-    if os_detector.is_linux:
-        result["details"] = _check_linux()
-    elif os_detector.is_windows:
+    if os_detector.is_windows:
         result["details"] = _check_windows()
+    elif os_detector.is_linux:
+        result["details"] = _check_linux()
     else:
         result["status"] = "warning"
         result["problems"].append(f"ОС {os_detector.system} не поддерживается")
         return result
 
-    # Анализ
     percent = result["details"].get("percent")
     if percent is not None:
         if percent >= 95:
             result["status"] = "critical"
-            result["problems"].append(
-                f"🔴 Критическое использование RAM: {percent}%"
-            )
+            result["problems"].append(f"🔴 Критическое использование RAM: {percent}%")
+            result["recommendations"].append("Закройте лишние программы.")
         elif percent >= 85:
             result["status"] = "warning"
-            result["problems"].append(
-                f"🟡 Высокое использование RAM: {percent}%"
-            )
+            result["problems"].append(f"🟡 Высокое использование RAM: {percent}%")
+            result["recommendations"].append("Рекомендуется закрыть неиспользуемые программы.")
 
-    # Swap
     swap_percent = result["details"].get("swap_percent")
     if swap_percent is not None and swap_percent >= 50:
         if result["status"] == "ok":
             result["status"] = "warning"
-        result["problems"].append(
-            f"🟡 Активно используется swap: {swap_percent}% "
-            f"(возможна нехватка RAM)"
-        )
+        result["problems"].append(f"🟡 Активно используется swap: {swap_percent}%")
 
     return result
 
 
 def _check_linux() -> dict:
-    """Проверка RAM на Linux через /proc/meminfo."""
-    details = {"total_gb": None, "used_gb": None, "percent": None,
-               "swap_total_gb": None, "swap_used_gb": None, "swap_percent": None}
-
+    details = {
+        "total_gb": None, "used_gb": None, "percent": None,
+        "swap_total_gb": None, "swap_used_gb": None, "swap_percent": None,
+    }
     try:
         with open("/proc/meminfo", "r") as f:
             mem = {}
@@ -97,36 +84,41 @@ def _check_linux() -> dict:
                 details["swap_percent"] = round((swap_used_kb / swap_total_kb) * 100, 1)
     except Exception as e:
         logger.error(f"Ошибка чтения /proc/meminfo: {e}")
-
     return details
 
 
 def _check_windows() -> dict:
-    """Проверка RAM на Windows через PowerShell."""
-    details = {"total_gb": None, "used_gb": None, "percent": None,
-               "swap_total_gb": None, "swap_used_gb": None, "swap_percent": None}
+    """RAM на Windows через PowerShell."""
+    details = {
+        "total_gb": None, "used_gb": None, "percent": None,
+        "swap_total_gb": None, "swap_used_gb": None, "swap_percent": None,
+    }
 
     ps_cmd = (
+        "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
         "$os = Get-CimInstance Win32_OperatingSystem; "
-        "$total = $os.TotalVisibleMemorySize; "
-        "$free = $os.FreePhysicalMemory; "
-        "$swapTotal = $os.TotalVirtualMemorySize; "
-        "$swapFree = $os.FreeVirtualMemory; "
-        "Write-Output \"$total $free $swapTotal $swapFree\""
+        "$total = [int]$os.TotalVisibleMemorySize; "
+        "$free = [int]$os.FreePhysicalMemory; "
+        "$swapTotal = [int]$os.TotalVirtualMemorySize; "
+        "$swapFree = [int]$os.FreeVirtualMemory; "
+        "Write-Output \"$total|$free|$swapTotal|$swapFree\""
     )
 
     rc, stdout, _ = os_detector.run_command(
         ["powershell", "-NoProfile", "-Command", ps_cmd]
     )
-    if rc != 0:
+
+    if rc != 0 or not stdout.strip():
         return details
 
     try:
-        total_kb, free_kb, swap_total_kb, swap_free_kb = stdout.strip().split()
-        total_kb = int(total_kb)
-        free_kb = int(free_kb)
-        swap_total_kb = int(swap_total_kb)
-        swap_free_kb = int(swap_free_kb)
+        parts = stdout.strip().split("|")
+        if len(parts) != 4:
+            return details
+        total_kb = int(parts[0])
+        free_kb = int(parts[1])
+        swap_total_kb = int(parts[2])
+        swap_free_kb = int(parts[3])
 
         used_kb = total_kb - free_kb
         swap_used_kb = swap_total_kb - swap_free_kb

@@ -1,9 +1,9 @@
 """
 Проверка драйверов.
-- Windows: проблемные устройства через WMI
-- Linux: модули ядра, dmesg на ошибки
+Кроссплатформенно: Linux (dmesg) + Windows (WMI PnPEntity).
 """
-import os
+import json
+
 from app.os_detect import os_detector
 from app.core.logger import setup_logger
 
@@ -11,11 +11,11 @@ logger = setup_logger("check-drivers")
 
 
 def check_drivers() -> dict:
-    """Проверяет драйверы."""
     result = {
         "category": "Драйверы",
         "status": "ok",
         "problems": [],
+        "recommendations": [],
         "details": {},
     }
 
@@ -25,18 +25,17 @@ def check_drivers() -> dict:
         result = _check_linux(result)
     else:
         result["status"] = "warning"
-        result["problems"].append(f"🟡 ОС {os_detector.system} не поддерживается")
+        result["problems"].append(f"ОС {os_detector.system} не поддерживается")
 
     return result
 
 
 def _check_windows(result: dict) -> dict:
-    """Проверка драйверов на Windows."""
-    # Проблемные устройства (жёлтый восклицательный знак)
+    """Проверка драйверов на Windows через WMI."""
     ps_cmd = (
         "Get-CimInstance Win32_PnPEntity | "
         "Where-Object {$_.ConfigManagerErrorCode -ne 0} | "
-        "Select-Object Name,ConfigManagerErrorCode | "
+        "Select-Object Name,ConfigManagerErrorCode,DeviceID | "
         "ConvertTo-Json -Compress"
     )
 
@@ -46,49 +45,58 @@ def _check_windows(result: dict) -> dict:
 
     problems = []
     if rc == 0 and stdout.strip():
-        import json
         try:
             data = json.loads(stdout)
             if isinstance(data, dict):
                 data = [data]
             for dev in data:
-                problems.append(dev.get("Name", "unknown"))
-        except Exception:
-            pass
+                problems.append({
+                    "name": dev.get("Name", "unknown"),
+                    "code": dev.get("ConfigManagerErrorCode", 0),
+                })
+        except Exception as e:
+            logger.error(f"Ошибка парсинга драйверов: {e}")
 
     result["details"]["problem_devices"] = problems
+    result["details"]["problem_count"] = len(problems)
 
     if problems:
         result["status"] = "warning"
-        for dev in problems[:5]:
-            result["problems"].append(f"🟡 Проблемное устройство: {dev}")
-        if len(problems) > 5:
-            result["problems"].append(f"🟡 ... и ещё {len(problems) - 5}")
+        for dev in problems[:10]:
+            result["problems"].append(
+                f"🟡 Проблемное устройство: {dev['name']} (код {dev['code']})"
+            )
+        if len(problems) > 10:
+            result["problems"].append(f"🟡 ... и ещё {len(problems) - 10}")
+        result["recommendations"].append(
+            "Откройте Диспетчер устройств (devmgmt.msc). "
+            "Обновите драйверы у проблемных устройств (жёлтый треугольник)."
+        )
 
     return result
 
 
 def _check_linux(result: dict) -> dict:
-    """Проверка драйверов на Linux."""
-    # 1. Ошибки в dmesg (за последний запуск)
+    """Проверка драйверов на Linux через dmesg."""
     rc, stdout, _ = os_detector.run_command(["dmesg", "--level=err,warn"])
-    if rc == 0 and stdout.strip():
-        errors = [line for line in stdout.splitlines() if line.strip()]
-        result["details"]["dmesg_errors"] = len(errors)
+    if rc != 0:
+        result["details"]["note"] = "dmesg недоступен (нужен root?)"
+        return result
 
-        if len(errors) > 10:
-            result["status"] = "warning"
-            result["problems"].append(
-                f"🟡 В dmesg {len(errors)} ошибок/предупреждений за последний запуск"
-            )
-            # Показываем первые 3
-            for line in errors[:3]:
-                short = line[:120]
-                result["problems"].append(f"   • {short}")
-        else:
-            result["details"]["dmesg_errors"] = len(errors)
+    errors = [line for line in stdout.splitlines() if line.strip()]
+    result["details"]["dmesg_errors"] = len(errors)
 
-    # 2. Загруженные модули
+    if len(errors) > 10:
+        result["status"] = "warning"
+        result["problems"].append(
+            f"🟡 В dmesg {len(errors)} ошибок/предупреждений"
+        )
+        for line in errors[:3]:
+            result["problems"].append(f"   • {line[:120]}")
+        result["recommendations"].append(
+            "Проверьте dmesg на наличие ошибок драйверов."
+        )
+
     rc, stdout, _ = os_detector.run_command(["lsmod"])
     if rc == 0:
         modules = [line.split()[0] for line in stdout.splitlines()[1:] if line.strip()]

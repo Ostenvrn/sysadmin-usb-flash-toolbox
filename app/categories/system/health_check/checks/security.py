@@ -1,8 +1,9 @@
 """
 Проверка безопасности.
-- Windows: Defender, Firewall
-- Linux: firewall (ufw/iptables), обновления безопасности
+Кроссплатформенно: Linux (ufw) + Windows (Defender, Firewall).
 """
+import json
+
 from app.os_detect import os_detector
 from app.core.logger import setup_logger
 
@@ -10,11 +11,11 @@ logger = setup_logger("check-security")
 
 
 def check_security() -> dict:
-    """Проверяет безопасность."""
     result = {
         "category": "Безопасность",
         "status": "ok",
         "problems": [],
+        "recommendations": [],
         "details": {},
     }
 
@@ -24,28 +25,25 @@ def check_security() -> dict:
         result = _check_linux(result)
     else:
         result["status"] = "warning"
-        result["problems"].append(f"🟡 ОС {os_detector.system} не поддерживается")
+        result["problems"].append(f"ОС {os_detector.system} не поддерживается")
 
     return result
 
 
 def _check_windows(result: dict) -> dict:
-    """Проверка безопасности на Windows."""
-    # 1. Windows Defender
+    """Defender + Firewall на Windows."""
+    # Defender
     ps_cmd = (
-        "$defender = Get-MpComputerStatus -ErrorAction SilentlyContinue; "
-        "if ($defender) { "
-        "$defender | Select-Object AntivirusEnabled,RealTimeProtectionEnabled,"
-        "AntivirusSignatureAge | ConvertTo-Json -Compress "
-        "} else { 'none' }"
+        "$d = Get-MpComputerStatus -ErrorAction SilentlyContinue; "
+        "if ($d) { $d | Select-Object AntivirusEnabled,"
+        "RealTimeProtectionEnabled,AntivirusSignatureAge | ConvertTo-Json -Compress } "
+        "else { 'none' }"
     )
-
     rc, stdout, _ = os_detector.run_command(
         ["powershell", "-NoProfile", "-Command", ps_cmd]
     )
 
     if rc == 0 and stdout.strip() and stdout.strip() != "none":
-        import json
         try:
             data = json.loads(stdout)
             av_enabled = data.get("AntivirusEnabled", False)
@@ -59,6 +57,9 @@ def _check_windows(result: dict) -> dict:
             if not av_enabled:
                 result["status"] = "critical"
                 result["problems"].append("🔴 Антивирус отключён!")
+                result["recommendations"].append(
+                    "Включите Windows Defender в настройках безопасности."
+                )
             elif not rt_enabled:
                 result["status"] = "warning"
                 result["problems"].append("🟡 Защита в реальном времени отключена")
@@ -69,47 +70,48 @@ def _check_windows(result: dict) -> dict:
                 result["problems"].append(
                     f"🟡 Базы антивируса устарели: {sig_age} дней"
                 )
-        except Exception:
-            pass
+                result["recommendations"].append(
+                    "Обновите базы Defender: wuauclt /detectnow"
+                )
+        except Exception as e:
+            logger.error(f"Ошибка парсинга Defender: {e}")
 
-    # 2. Firewall
+    # Firewall
     ps_cmd = (
-        "Get-NetFirewallProfile | "
-        "Select-Object Name,Enabled | "
+        "Get-NetFirewallProfile | Select-Object Name,Enabled | "
         "ConvertTo-Json -Compress"
     )
-
     rc, stdout, _ = os_detector.run_command(
         ["powershell", "-NoProfile", "-Command", ps_cmd]
     )
 
     if rc == 0 and stdout.strip():
-        import json
         try:
             data = json.loads(stdout)
             if isinstance(data, dict):
                 data = [data]
 
-            disabled_profiles = [
-                p.get("Name") for p in data if not p.get("Enabled", True)
-            ]
-            result["details"]["firewall_disabled_profiles"] = disabled_profiles
+            disabled = [p.get("Name") for p in data if not p.get("Enabled", True)]
+            result["details"]["firewall_disabled_profiles"] = disabled
 
-            if disabled_profiles:
+            if disabled:
                 if result["status"] == "ok":
                     result["status"] = "warning"
                 result["problems"].append(
-                    f"🟡 Firewall отключён: {', '.join(disabled_profiles)}"
+                    f"🟡 Firewall отключён: {', '.join(disabled)}"
                 )
-        except Exception:
-            pass
+                result["recommendations"].append(
+                    "Включите Firewall в Безопасности Windows."
+                )
+        except Exception as e:
+            logger.error(f"Ошибка парсинга Firewall: {e}")
 
     return result
 
 
 def _check_linux(result: dict) -> dict:
-    """Проверка безопасности на Linux."""
-    # 1. UFW
+    """UFW + обновления безопасности на Linux."""
+    # UFW
     rc, stdout, _ = os_detector.run_command(["sudo", "ufw", "status"])
     if rc == 0:
         status_line = stdout.splitlines()[0] if stdout else ""
@@ -118,15 +120,15 @@ def _check_linux(result: dict) -> dict:
         if "inactive" in status_line.lower():
             result["status"] = "warning"
             result["problems"].append("🟡 UFW (firewall) неактивен")
+            result["recommendations"].append(
+                "Включите UFW: sudo ufw enable"
+            )
 
-    # 2. Проверка обновлений безопасности
-    rc, stdout, _ = os_detector.run_command(
-        ["apt", "list", "--upgradable"]
-    )
+    # Обновления безопасности
+    rc, stdout, _ = os_detector.run_command(["apt", "list", "--upgradable"])
     if rc == 0:
         security_updates = [
-            line for line in stdout.splitlines()
-            if "security" in line.lower()
+            line for line in stdout.splitlines() if "security" in line.lower()
         ]
         result["details"]["security_updates"] = len(security_updates)
 
@@ -139,12 +141,8 @@ def _check_linux(result: dict) -> dict:
             for line in security_updates[:3]:
                 pkg = line.split("/")[0]
                 result["problems"].append(f"   • {pkg}")
-
-    # 3. Права на sudoers
-    rc, _, _ = os_detector.run_command(["sudo", "-n", "true"])
-    if rc != 0:
-        result["details"]["sudo_passwordless"] = False
-    else:
-        result["details"]["sudo_passwordless"] = True
+            result["recommendations"].append(
+                "Установите обновления: sudo apt update && sudo apt upgrade"
+            )
 
     return result

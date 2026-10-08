@@ -1,9 +1,9 @@
 """
-Проверка железа.
-Ищет: высокую температуру, проблемы с CPU, батарею.
+Проверка железа (CPU, температура, батарея).
+Кроссплатформенно: Linux + Windows.
 """
 import os
-import subprocess
+import glob
 
 from app.os_detect import os_detector
 from app.core.logger import setup_logger
@@ -12,86 +12,115 @@ logger = setup_logger("check-hardware")
 
 
 def check_hardware() -> dict:
-    """Проверяет железо."""
     result = {
         "category": "Железо",
         "status": "ok",
         "problems": [],
+        "recommendations": [],
         "details": {},
     }
 
-    # CPU
-    result["details"]["cpu"] = _get_cpu_info()
-
-    # Температура (Linux, если доступно)
-    if os_detector.is_linux:
-        temp = _get_cpu_temp_linux()
-        if temp is not None:
-            result["details"]["cpu_temp"] = temp
-            if temp >= 90:
-                result["status"] = "critical"
-                result["problems"].append(f"🔴 Температура CPU: {temp}°C (перегрев!)")
-            elif temp >= 75:
-                if result["status"] == "ok":
-                    result["status"] = "warning"
-                result["problems"].append(f"🟡 Температура CPU: {temp}°C (высокая)")
-
-    # Батарея (Linux, если ноутбук)
-    if os_detector.is_linux:
-        bat = _get_battery_linux()
-        if bat:
-            result["details"]["battery"] = bat
-            if bat.get("percent") is not None and bat["percent"] < 20:
-                if result["status"] == "ok":
-                    result["status"] = "warning"
-                result["problems"].append(
-                    f"🟡 Батарея: {bat['percent']}% (низкий заряд)"
-                )
+    if os_detector.is_windows:
+        result = _check_windows(result)
+    elif os_detector.is_linux:
+        result = _check_linux(result)
+    else:
+        result["status"] = "warning"
+        result["problems"].append(f"ОС {os_detector.system} не поддерживается")
 
     return result
 
 
-def _get_cpu_info() -> dict:
-    """Информация о CPU."""
-    return {
-        "cores": os.cpu_count(),
-    }
+def _check_windows(result: dict) -> dict:
+    """CPU, батарея на Windows."""
+    ps_cmd = (
+        "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
+        "$cpu = Get-CimInstance Win32_Processor; "
+        "Write-Output \"$($cpu.Name)|$($cpu.NumberOfCores)|$($cpu.NumberOfLogicalProcessors)\""
+    )
+    rc, stdout, _ = os_detector.run_command(
+        ["powershell", "-NoProfile", "-Command", ps_cmd]
+    )
 
+    if rc == 0 and stdout.strip():
+        parts = stdout.strip().split("|")
+        if len(parts) >= 3:
+            result["details"]["cpu"] = {
+                "model": parts[0].strip(),
+                "cores": int(parts[1]) if parts[1].isdigit() else 0,
+                "threads": int(parts[2]) if parts[2].isdigit() else 0,
+            }
 
-def _get_cpu_temp_linux() -> float:
-    """Температура CPU на Linux (через sensors или /sys)."""
-    # Пробуем через /sys/class/thermal
-    try:
-        import glob
-        for zone in glob.glob("/sys/class/thermal/thermal_zone*"):
+    ps_cmd = (
+        "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
+        "$bat = Get-CimInstance Win32_Battery -ErrorAction SilentlyContinue; "
+        "if ($bat) { Write-Output \"$($bat.EstimatedChargeRemaining)|$($bat.BatteryStatus)\" } else { 'none' }"
+    )
+    rc, stdout, _ = os_detector.run_command(
+        ["powershell", "-NoProfile", "-Command", ps_cmd]
+    )
+
+    if rc == 0 and stdout.strip() and stdout.strip() != "none":
+        parts = stdout.strip().split("|")
+        if len(parts) >= 2:
             try:
-                with open(f"{zone}/type", "r") as f:
-                    zone_type = f.read().strip()
-                if "cpu" in zone_type.lower() or "x86" in zone_type.lower():
-                    with open(f"{zone}/temp", "r") as f:
-                        temp = int(f.read().strip()) / 1000
-                    return round(temp, 1)
-            except Exception:
-                continue
+                percent = int(parts[0])
+                result["details"]["battery"] = {"percent": percent}
+                if percent < 20:
+                    if result["status"] == "ok":
+                        result["status"] = "warning"
+                    result["problems"].append(f"🟡 Батарея: {percent}%")
+            except ValueError:
+                pass
+    else:
+        result["details"]["battery"] = "нет (стационарный ПК)"
+
+    return result
+
+
+def _check_linux(result: dict) -> dict:
+    """CPU, батарея на Linux."""
+    result["details"]["cpu"] = {"cores": os.cpu_count()}
+
+    try:
+        with open("/proc/cpuinfo", "r") as f:
+            for line in f:
+                if "model name" in line:
+                    result["details"]["cpu"]["model"] = line.split(":")[1].strip()
+                    break
     except Exception:
         pass
-    return None
 
+    for zone in glob.glob("/sys/class/thermal/thermal_zone*"):
+        try:
+            with open(f"{zone}/type", "r") as f:
+                zone_type = f.read().strip()
+            with open(f"{zone}/temp", "r") as f:
+                temp_c = int(f.read().strip()) / 1000
 
-def _get_battery_linux() -> dict:
-    """Информация о батарее на Linux."""
-    import glob
-    try:
-        for bat in glob.glob("/sys/class/power_supply/BAT*"):
-            info = {}
-            try:
-                with open(f"{bat}/capacity", "r") as f:
-                    info["percent"] = int(f.read().strip())
-                with open(f"{bat}/status", "r") as f:
-                    info["status"] = f.read().strip()
-                return info
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return {}
+            if "cpu" in zone_type.lower() or "x86" in zone_type.lower():
+                result["details"]["cpu_temp"] = round(temp_c, 1)
+                if temp_c >= 90:
+                    result["status"] = "critical"
+                    result["problems"].append(f"🔴 Температура CPU: {temp_c:.1f}°C")
+                elif temp_c >= 75:
+                    if result["status"] == "ok":
+                        result["status"] = "warning"
+                    result["problems"].append(f"🟡 Температура CPU: {temp_c:.1f}°C")
+                break
+        except Exception:
+            continue
+
+    for bat in glob.glob("/sys/class/power_supply/BAT*"):
+        try:
+            with open(f"{bat}/capacity", "r") as f:
+                percent = int(f.read().strip())
+            result["details"]["battery"] = {"percent": percent}
+            if percent < 20:
+                if result["status"] == "ok":
+                    result["status"] = "warning"
+                result["problems"].append(f"🟡 Батарея: {percent}%")
+        except Exception:
+            pass
+
+    return result
