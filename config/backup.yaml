@@ -1,89 +1,62 @@
 # =====================================================================
 # Конфигурация бэкапов.
-# Два профиля: "workstation" (рабочий ПК) и "server" (сервер).
+# Профили: workstation, full_home, system, server.
+# Кроссплатформенно: Linux + Windows.
 # =====================================================================
 
-# Куда сохранять бэкапы (относительно корня проекта)
 backup_dir: output/backups
-
-# Формат архива: tar.gz или zip
 format: tar.gz
-
-# Хранить N последних бэкапов
 keep_last: 5
-
-# Сжимать
 compress: true
-
-# Проверять целостность после создания
 verify_after_create: true
 
 # =====================================================================
-# ПРОФИЛЬ: Рабочий компьютер
+# ПРОФИЛЬ: Рабочий компьютер (данные)
 # =====================================================================
 workstation:
-  name: "Рабочий компьютер"
+  name: "💻 Рабочий компьютер (данные)"
+  description: "Личные файлы, проекты, настройки (Linux + Windows)"
   targets:
-    # === Личные папки ===
-    - name: "Документы"
-      path: "~/Документы"
-      enabled: true
-
-    - name: "Загрузки"
-      path: "~/Загрузки"
-      enabled: true
-
-    - name: "Изображения"
-      path: "~/Изображения"
-      enabled: true
-
-    - name: "Видео"
-      path: "~/Видео"
-      enabled: true
-
-    - name: "Музыка"
-      path: "~/Музыка"
-      enabled: true
-
-    - name: "Рабочий стол"
-      path: "~/Рабочий стол"
-      enabled: true
-
-    # === Проекты и работа ===
+    # --- Общие для Linux и Windows ---
     - name: "Проекты"
       path: "~/projects"
       enabled: true
 
-    - name: "DevOps"
-      path: "~/devops"
+    # --- Windows ---
+    - name: "Documents (Windows)"
+      path: "~/Documents"
       enabled: true
 
-    - name: "Hexlet"
-      path: "~/hexlet"
+    - name: "Downloads (Windows)"
+      path: "~/Downloads"
       enabled: true
 
-    - name: "Padawan Path"
-      path: "~/padawan-path"
+    - name: "Desktop (Windows)"
+      path: "~/Desktop"
       enabled: true
 
-    # === Дополнительные проекты ===
-    - name: "Gofroagregat"
-      path: "~/gofroagregat"
-      enabled: false
+    - name: "Pictures (Windows)"
+      path: "~/Pictures"
+      enabled: true
 
-    - name: "Racing Game"
-      path: "~/racinggame"
-      enabled: false
+    # --- Linux ---
+    - name: "Документы (Linux)"
+      path: "~/Документы"
+      enabled: true
 
-    - name: "War40k"
-      path: "~/war40k"
-      enabled: false
+    - name: "Загрузки (Linux)"
+      path: "~/Загрузки"
+      enabled: true
 
-    - name: "Products"
-      path: "~/products"
-      enabled: false
+    - name: "Изображения (Linux)"
+      path: "~/Изображения"
+      enabled: true
 
-    # === Настройки и конфиги ===
+    - name: "Рабочий стол (Linux)"
+      path: "~/Рабочий стол"
+      enabled: true
+
+    # --- Настройки (общие) ---
     - name: "SSH-ключи"
       path: "~/.ssh"
       enabled: true
@@ -96,33 +69,15 @@ workstation:
       path: "~/.bashrc"
       enabled: true
 
-    - name: "Zsh-конфиг"
-      path: "~/.zshrc"
-      enabled: true
-
-    - name: "Настройки приложений"
-      path: "~/.config"
-      enabled: false   # может быть большой
-
-    # === Личные скрипты в корне ===
-    - name: "Скрипты (jobs-scraper)"
-      path: "~/jobs-scraper.py"
-      enabled: true
-
-    - name: "Скрипты (ollama-proxy)"
-      path: "~/ollama-proxy.py"
-      enabled: true
-
-    - name: "Заметки (devops-tips)"
-      path: "~/devops-tips.txt"
-      enabled: true
+    - name: "PowerShell-профиль (Windows)"
+      path: "~/Documents/WindowsPowerShell"
+      enabled: false
 
   exclude:
     - "*.tmp"
     - "*.log"
     - "__pycache__"
     - ".cache"
-    - ".git"                # можно включить, если хочешь историю
     - "node_modules"
     - ".venv"
     - "venv"
@@ -130,49 +85,104 @@ workstation:
     - ".cargo"
     - ".rustup"
     - ".buildozer"
-    - ".kivy"
+    - "snap"
+    - "AppData"
+
+# =====================================================================
+# ПРОФИЛЬ: Полный бэкап домашней папки
+# =====================================================================
+full_home:
+  name: "🏠 Полный бэкап домашней папки"
+  description: "Вся домашняя папка (кроме кэшей)"
+  targets:
+    - name: "Домашняя папка"
+      path: "~"
+      enabled: true
+  exclude:
+    # Кэши и временные (общие)
+    - ".cache"
+    - ".npm"
+    - ".cargo"
+    - ".rustup"
+    # Linux
+    - ".local/share/Trash"
     - "snap"
     - ".megaCmd"
     - ".steam"
+    - ".local/share/Steam"
+    - ".buildozer"
+    - ".kivy"
+    # Windows
+    - "AppData/Local/Temp"
+    - "AppData/Local/Microsoft/Windows/INetCache"
+    - "AppData/Local/Packages"
+    # Временные
+    - "*.tmp"
+    - "*.log"
+    - "__pycache__"
+    - "node_modules"
+    # Бэкапы (не зацикливаемся)
+    - "output/backups"
+    - "projects/sysadmin-usb/output"
+
+# =====================================================================
+# ПРОФИЛЬ: Система (требует root/admin)
+# =====================================================================
+system:
+  name: "🖥️ Система (требует root/admin)"
+  description: "Конфиги, установленные программы. БЕЗ пользовательских данных."
+  requires_root: true
+  targets:
+    - name: "Конфиги (/etc)"
+      path: "/etc"
+      enabled: true
+    - name: "Программы (/usr/local)"
+      path: "/usr/local"
+      enabled: true
+    - name: "Переменные данные (/var/lib)"
+      path: "/var/lib"
+      enabled: true
+    - name: "Доп. софт (/opt)"
+      path: "/opt"
+      enabled: true
+  exclude:
+    - "*.tmp"
+    - "*.log"
+    - "__pycache__"
+    - ".cache"
+    - "node_modules"
+    - "*.sock"
+    - "*.pid"
 
 # =====================================================================
 # ПРОФИЛЬ: Сервер
 # =====================================================================
 server:
-  name: "Сервер"
+  name: "🖥️ Сервер"
+  description: "Конфиги, БД, сайты"
+  requires_root: true
   targets:
-    - name: "Конфиги системы"
+    - name: "Конфиги (/etc)"
       path: "/etc"
       enabled: true
-
     - name: "PostgreSQL"
       path: "/var/lib/postgresql"
       enabled: true
-
     - name: "MySQL"
       path: "/var/lib/mysql"
       enabled: true
-
-    - name: "Сайты"
+    - name: "Сайты (/var/www)"
       path: "/var/www"
       enabled: true
-
-    - name: "Домашние папки"
+    - name: "Домашние папки (/home)"
       path: "/home"
       enabled: true
-
-    - name: "Root"
+    - name: "Root (/root)"
       path: "/root"
       enabled: true
-
-    - name: "Доп. софт"
+    - name: "Доп. софт (/opt)"
       path: "/opt"
       enabled: true
-
-    - name: "Логи"
-      path: "/var/log"
-      enabled: false
-
   exclude:
     - "*.tmp"
     - "*.log"
