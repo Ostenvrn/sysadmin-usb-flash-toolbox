@@ -21,39 +21,29 @@ class OSDetector:
         self.is_linux = self.system == "Linux"
         self.is_macos = self.system == "Darwin"
 
-        # Корень проекта (папка, где лежит app/)
         self.project_root = Path(__file__).parent.parent.resolve()
 
     def get_python_executable(self) -> str:
-        """Возвращает путь к Python для текущей ОС."""
         if self.is_windows:
-            # Портативный Python на Windows
             portable = self.project_root / "python" / "python.exe"
             if portable.exists():
                 return str(portable)
-            return sys.executable  # fallback
-        else:
-            # На Linux — системный Python
             return sys.executable
+        return sys.executable
 
     def get_libs_path(self) -> Path:
-        """Путь к папке с зависимостями."""
         return self.project_root / "libs"
 
     def get_config_path(self) -> Path:
-        """Путь к папке с конфигами."""
         return self.project_root / "config"
 
     def get_logs_path(self) -> Path:
-        """Путь к папке с логами."""
         return self.project_root / "logs"
 
     def get_output_path(self) -> Path:
-        """Путь к папке с результатами."""
         return self.project_root / "output"
 
     def get_system_info(self) -> dict:
-        """Собирает информацию о системе."""
         info = {
             "system": self.system,
             "release": self.release,
@@ -85,25 +75,34 @@ class OSDetector:
         """
         Запускает команду с учётом ОС.
         Возвращает (returncode, stdout, stderr).
+        Кроссплатформенно: UTF-8 декодирование.
         """
         try:
+            env = None
+            if self.is_windows:
+                env = os.environ.copy()
+                env["PYTHONIOENCODING"] = "utf-8"
+
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=60,
                 shell=self.is_windows,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
             )
-            return result.returncode, result.stdout, result.stderr
+            return result.returncode, result.stdout or "", result.stderr or ""
+        except subprocess.TimeoutExpired:
+            return -1, "", "Таймаут команды"
         except Exception as e:
             return -1, "", str(e)
 
 
-# Глобальный экземпляр
 os_detector = OSDetector()
 
 
 if __name__ == "__main__":
-    # Для отладки: запускаем и смотрим, что определилось
     import json
     print(json.dumps(os_detector.get_system_info(), indent=2, ensure_ascii=False))
