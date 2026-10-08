@@ -1,16 +1,18 @@
 """
 Сканирование подсети.
 Находит все активные устройства.
-- nmap-режим (TCP SYN ping) — обход блокировки ICMP
-- MAC, производитель (из IEEE OUI)
-- Открытые порты, hostname
-- Классификация: ПК, сервер, принтер, роутер, телефон
+- nmap-режим (если доступен) — обход блокировки ICMP
+- ping-режим (fallback) — работает везде
+- Кроссплатформенность: Windows + Linux
 """
 import ipaddress
 import socket
 import re
 import concurrent.futures
+import shutil
+import json
 from datetime import datetime
+from pathlib import Path
 
 from app.os_detect import os_detector
 from app.core.logger import setup_logger
@@ -19,10 +21,12 @@ from app.core.device_classifier import classify_device
 
 logger = setup_logger("network-scan")
 
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.resolve()
 
-# =====================================================================
-# Вспомогательные функции
-# =====================================================================
+
+def has_nmap() -> bool:
+    return shutil.which("nmap") is not None
+
 
 def get_local_ip() -> str:
     try:
@@ -51,24 +55,19 @@ def parse_subnet(subnet: str) -> list:
 
 
 def get_mac(ip: str) -> str:
-    """Получает MAC через ARP."""
+    """Получает MAC через ARP. Кроссплатформенно."""
     if os_detector.is_windows:
         os_detector.run_command(["ping", "-n", "1", "-w", "500", ip])
+        rc, stdout, _ = os_detector.run_command(["arp", "-a", ip])
+        if rc != 0:
+            rc, stdout, _ = os_detector.run_command(["arp", "-a"])
     else:
         os_detector.run_command(["ping", "-c", "1", "-W", "1", ip])
+        rc, stdout, _ = os_detector.run_command(["arp", "-n", ip])
+        if rc != 0:
+            rc, stdout, _ = os_detector.run_command(["ip", "neigh"])
 
     try:
-        if os_detector.is_windows:
-            rc, stdout, _ = os_detector.run_command(["arp", "-a", ip])
-        else:
-            rc, stdout, _ = os_detector.run_command(["arp", "-n", ip])
-
-        if rc != 0:
-            if os_detector.is_windows:
-                rc, stdout, _ = os_detector.run_command(["arp", "-a"])
-            else:
-                rc, stdout, _ = os_detector.run_command(["ip", "neigh"])
-
         for line in stdout.splitlines():
             if ip in line:
                 m = re.search(r"([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}", line)
@@ -89,6 +88,7 @@ def get_hostname(ip: str) -> str:
 
 
 def ping_host(ip: str, timeout: int = 1) -> bool:
+    """Пингует один IP. Кроссплатформенно."""
     if os_detector.is_windows:
         cmd = ["ping", "-n", "1", "-w", str(timeout * 1000), ip]
     else:
@@ -98,15 +98,12 @@ def ping_host(ip: str, timeout: int = 1) -> bool:
 
 
 def get_open_ports(ip: str, timeout: float = 0.3) -> list:
-    """Сканирует популярные порты."""
     ports_to_check = [
         22, 80, 135, 139, 443, 445, 515, 631,
         1433, 3306, 3389, 5432, 5900, 8080, 8443, 9100,
-        5000, 5001,  # Synology
-        27017, 6379, # MongoDB, Redis
+        5000, 5001, 27017, 6379,
     ]
     open_ports = []
-
     for port in ports_to_check:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -117,26 +114,39 @@ def get_open_ports(ip: str, timeout: float = 0.3) -> list:
                 open_ports.append(port)
         except Exception:
             pass
-
     return open_ports
 
 
 def get_local_connection_type() -> str:
-    """Определяет тип подключения СВОЕГО ПК."""
+    """Определяет тип подключения СВОЕГО ПК. Кроссплатформенно."""
     if os_detector.is_windows:
-        rc, stdout, _ = os_detector.run_command(["netsh", "interface", "show", "interface"])
-        if rc == 0:
-            for line in stdout.splitlines():
-                line_lower = line.lower()
-                if "wi-fi" in line_lower or "wireless" in line_lower:
-                    if "connected" in line_lower:
+        ps_cmd = (
+            "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
+            "Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | "
+            "Select-Object Name,MediaType,InterfaceDescription | "
+            "ConvertTo-Json -Compress"
+        )
+        rc, stdout, _ = os_detector.run_command(
+            ["powershell", "-NoProfile", "-Command", ps_cmd]
+        )
+        if rc == 0 and stdout.strip():
+            try:
+                data = json.loads(stdout)
+                if isinstance(data, dict):
+                    data = [data]
+                for adapter in data:
+                    name = (adapter.get("Name") or "").lower()
+                    desc = (adapter.get("InterfaceDescription") or "").lower()
+                    media = (adapter.get("MediaType") or "").lower()
+                    if "wi-fi" in desc or "wireless" in desc or "802.11" in media or "wi-fi" in name:
                         return "wifi"
-                if "ethernet" in line_lower:
-                    if "connected" in line_lower:
+                    if "ethernet" in desc or "802.3" in media:
                         return "ethernet"
+            except Exception:
+                pass
     else:
         rc, stdout, _ = os_detector.run_command(["ip", "-br", "link"])
-        if rc == 0:
+        if rc == 0 and stdout:
             for line in stdout.splitlines():
                 parts = line.split()
                 if len(parts) < 2:
@@ -152,15 +162,10 @@ def get_local_connection_type() -> str:
     return ""
 
 
-# =====================================================================
-# nmap-сканирование
-# =====================================================================
-
 def scan_with_nmap(subnet: str) -> list:
     try:
         import nmap
     except ImportError:
-        logger.warning("python-nmap не установлен")
         return []
 
     nm = nmap.PortScanner()
@@ -176,30 +181,23 @@ def scan_with_nmap(subnet: str) -> list:
     devices = []
     for host in nm.all_hosts():
         device = {"ip": host, "hostname": "", "mac": "", "vendor": "", "connection": ""}
-
         try:
             hostnames = nm[host].hostnames()
             if hostnames:
                 device["hostname"] = hostnames[0].get("name", "")
         except Exception:
             pass
-
         try:
             addresses = nm[host].get("addresses", {})
             if "mac" in addresses:
                 device["mac"] = addresses["mac"].upper()
         except Exception:
             pass
-
         devices.append(device)
 
     print(f"  ✅ nmap нашёл: {len(devices)} устройств")
     return devices
 
-
-# =====================================================================
-# Комбинированное сканирование
-# =====================================================================
 
 def scan_subnet(subnet: str, timeout: int = 1, use_nmap: bool = True) -> list:
     print(f"  🔍 Сканирование {subnet}")
@@ -207,10 +205,13 @@ def scan_subnet(subnet: str, timeout: int = 1, use_nmap: bool = True) -> list:
 
     devices_by_ip = {}
 
-    if use_nmap:
+    if use_nmap and has_nmap():
         nmap_devices = scan_with_nmap(subnet)
         for d in nmap_devices:
             devices_by_ip[d["ip"]] = d
+    elif use_nmap:
+        print(f"  ℹ️  nmap не найден, используем ping")
+        print()
 
     hosts = parse_subnet(subnet)
     total = len(hosts)
@@ -232,9 +233,12 @@ def scan_subnet(subnet: str, timeout: int = 1, use_nmap: bool = True) -> list:
             done += 1
             if done % 30 == 0 or done == total:
                 print(f"  Проверено: {done}/{total} | Найдено: {len(devices_by_ip)}")
-            result = future.result()
-            if result:
-                devices_by_ip[result["ip"]] = result
+            try:
+                result = future.result()
+                if result:
+                    devices_by_ip[result["ip"]] = result
+            except Exception as e:
+                logger.debug(f"Ошибка проверки: {e}")
 
     print()
     print(f"  🔬 Обогащение данных ({len(devices_by_ip)} устройств)...")
@@ -243,32 +247,30 @@ def scan_subnet(subnet: str, timeout: int = 1, use_nmap: bool = True) -> list:
     local_conn = get_local_connection_type()
 
     for ip, d in devices_by_ip.items():
-        if not d.get("mac"):
-            d["mac"] = get_mac(ip)
-        if not d.get("vendor"):
-            d["vendor"] = lookup_vendor(d.get("mac", ""))
-        if not d.get("hostname"):
-            d["hostname"] = get_hostname(ip)
-        if not d.get("open_ports"):
-            d["open_ports"] = get_open_ports(ip)
+        try:
+            if not d.get("mac"):
+                d["mac"] = get_mac(ip)
+            if not d.get("vendor"):
+                d["vendor"] = lookup_vendor(d.get("mac", ""))
+            if not d.get("hostname"):
+                d["hostname"] = get_hostname(ip)
+            if not d.get("open_ports"):
+                d["open_ports"] = get_open_ports(ip)
 
-        if ip == local_ip:
-            d["connection"] = local_conn
-        else:
-            d["connection"] = ""
+            if ip == local_ip:
+                d["connection"] = local_conn
+            else:
+                d["connection"] = ""
 
-        if d.get("mac") and is_local_mac(d["mac"]):
-            d["is_local_mac"] = True
+            if d.get("mac") and is_local_mac(d["mac"]):
+                d["is_local_mac"] = True
 
-        # Классификация
-        d["classification"] = classify_device(d)
+            d["classification"] = classify_device(d)
+        except Exception as e:
+            logger.error(f"Ошибка обогащения {ip}: {e}")
 
     return list(devices_by_ip.values())
 
-
-# =====================================================================
-# Вывод
-# =====================================================================
 
 def print_report(devices: list, subnet: str):
     print()
@@ -283,14 +285,13 @@ def print_report(devices: list, subnet: str):
         print("  Устройства не найдены.")
         return
 
-    # Группируем по категориям
+    from app.core.device_classifier import CATEGORY_INFO
+
     by_category = {}
     for d in devices:
         cat = d.get("classification", {}).get("category", "unknown")
         by_category.setdefault(cat, []).append(d)
 
-    # Приоритет: ПК и серверы вверху, телефоны внизу
-    from app.core.device_classifier import CATEGORY_INFO
     sorted_cats = sorted(
         by_category.keys(),
         key=lambda c: CATEGORY_INFO.get(c, {}).get("priority", 9)
@@ -324,10 +325,6 @@ def print_report(devices: list, subnet: str):
         print()
 
 
-# =====================================================================
-# Точка входа
-# =====================================================================
-
 def run():
     print()
     print("=" * 80)
@@ -346,13 +343,16 @@ def run():
     print(f"  Подсеть: {subnet}")
     print()
 
-    print("  Режим сканирования:")
-    print("    [1] nmap + ping (обход блокировки ICMP)")
-    print("    [2] только ping")
-    print()
-
-    mode = input("  Выбор [1]: ").strip() or "1"
-    use_nmap = mode == "1"
+    if has_nmap():
+        print("  Режим сканирования:")
+        print("    [1] nmap + ping")
+        print("    [2] только ping")
+        print()
+        mode = input("  Выбор [1]: ").strip() or "1"
+        use_nmap = mode == "1"
+    else:
+        print("  ℹ️  nmap не найден — используется ping")
+        use_nmap = False
 
     print()
     answer = input(f"  Сканировать {subnet}? [Y/n]: ").strip().lower()
@@ -363,7 +363,7 @@ def run():
         subnet = custom
 
     print()
-    print("  ⚠️  Для /24 — 1-3 минуты (nmap) или 30-60 секунд (ping).")
+    print("  ⚠️  Для /24 — 30-90 секунд.")
     print()
     confirm = input("  Начать? [Y/n]: ").strip().lower()
     if confirm == "n":
@@ -371,13 +371,18 @@ def run():
 
     print()
 
-    devices = scan_subnet(subnet, timeout=1, use_nmap=use_nmap)
+    try:
+        devices = scan_subnet(subnet, timeout=1, use_nmap=use_nmap)
+    except Exception as e:
+        print(f"  ❌ Ошибка сканирования: {e}")
+        logger.exception("Сканирование упало")
+        input("  Нажми Enter...")
+        return
+
     print_report(devices, subnet)
 
     if devices:
-        import json
-        from pathlib import Path
-        output_dir = Path(__file__).parent.parent.parent.parent / "output" / "scans"
+        output_dir = PROJECT_ROOT / "output" / "scans"
         output_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filepath = output_dir / f"network_{timestamp}.json"
@@ -388,7 +393,7 @@ def run():
                 "scanned_at": datetime.now().isoformat(),
                 "mode": "nmap+ping" if use_nmap else "ping",
                 "devices": devices,
-            }, f, indent=2, ensure_ascii=False)
+            }, f, indent=2, ensure_ascii=False, default=str)
 
         print(f"  📄 Результат сохранён: {filepath}")
 
