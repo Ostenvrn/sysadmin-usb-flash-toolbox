@@ -173,3 +173,6 @@ python/
 
 # Кэш pip
 pip-wheel-metadata/
+sysadmin-usb.spec
+build/
+dist/
