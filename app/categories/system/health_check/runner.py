@@ -1,44 +1,60 @@
 """
 Главный запуск всех проверок здоровья ПК.
 Собирает результаты из всех модулей checks/.
+
+ВАЖНО: используется СТАТИЧЕСКИЙ импорт, чтобы PyInstaller
+включил все модули в .exe.
 """
 from datetime import datetime
 
 from app.os_detect import os_detector
 from app.core.logger import setup_logger
 
+# === СТАТИЧЕСКИЕ ИМПОРТЫ (для PyInstaller) ===
+from app.categories.system.health_check.checks import (
+    hardware,
+    temperature,
+    memory,
+    disks,
+    network,
+    wifi,
+    services,
+    drivers,
+    usb,
+    events,
+    processes,
+    security,
+    power,
+)
+
 logger = setup_logger("health-check-runner")
 
 
+# Список проверок (функция, имя)
+CHECKS = [
+    ("hardware", hardware.check_hardware),
+    ("temperature", temperature.check_temperature),
+    ("memory", memory.check_memory),
+    ("disks", disks.check_disks),
+    ("network", network.check_network),
+    ("wifi", wifi.check_wifi),
+    ("services", services.check_services),
+    ("drivers", drivers.check_drivers),
+    ("usb", usb.check_usb),
+    ("events", events.check_events),
+    ("processes", processes.check_processes),
+    ("security", security.check_security),
+    ("power", power.check_power),
+]
+
+
 def run_all_checks() -> list:
-    """
-    Запускает все проверки.
-    Возвращает список результатов: [dict, dict, ...]
-    """
+    """Запускает все проверки."""
     results = []
 
-    # Список проверок: (имя, модуль, функция)
-    checks = [
-        ("hardware", "app.categories.system.health_check.checks.hardware", "check_hardware"),
-        ("temperature", "app.categories.system.health_check.checks.temperature", "check_temperature"),
-        ("memory", "app.categories.system.health_check.checks.memory", "check_memory"),
-        ("disks", "app.categories.system.health_check.checks.disks", "check_disks"),
-        ("network", "app.categories.system.health_check.checks.network", "check_network"),
-        ("wifi", "app.categories.system.health_check.checks.wifi", "check_wifi"),
-        ("services", "app.categories.system.health_check.checks.services", "check_services"),
-        ("drivers", "app.categories.system.health_check.checks.drivers", "check_drivers"),
-        ("usb", "app.categories.system.health_check.checks.usb", "check_usb"),
-        ("events", "app.categories.system.health_check.checks.events", "check_events"),
-        ("processes", "app.categories.system.health_check.checks.processes", "check_processes"),
-        ("security", "app.categories.system.health_check.checks.security", "check_security"),
-        ("power", "app.categories.system.health_check.checks.power", "check_power"),
-    ]
-
-    for name, module_path, func_name in checks:
+    for name, func in CHECKS:
         print(f"  🔍 Проверка: {name}...")
         try:
-            module = __import__(module_path, fromlist=[func_name])
-            func = getattr(module, func_name)
             result = func()
             results.append(result)
             icon = {"ok": "🟢", "warning": "🟡", "critical": "🔴"}.get(result["status"], "⚪")
@@ -58,7 +74,7 @@ def run_all_checks() -> list:
 
 
 def summarize(results: list) -> dict:
-    """Подводит итог: сколько ok/warning/critical."""
+    """Подводит итог."""
     summary = {"ok": 0, "warning": 0, "critical": 0, "total": len(results)}
     for r in results:
         status = r.get("status", "ok")
